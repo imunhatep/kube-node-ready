@@ -1,0 +1,92 @@
+# Default values for kube-node-ready
+
+image:
+  repository: kube-node-ready
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+    - ALL
+
+config:
+  initialTimeout: "300s"
+  maxRetries: 5
+  retryBackoff: "exponential"
+  dnsTestDomains:
+    - kubernetes.default.svc.cluster.local
+    - google.com
+  clusterDNSIP: ""
+  taintKey: "node-ready/unverified"
+  taintValue: "true"
+  taintEffect: "NoSchedule"
+  verifiedLabel: "node-ready/verified"
+  verifiedLabelValue: "true"
+  enableMetrics: true
+  metricsPort: 8080
+  logLevel: "info"
+  logFormat: "json"
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 100m
+    memory: 128Mi
+
+# DaemonSet will only run on nodes WITHOUT the verified label
+nodeAffinity:
+  requiredDuringSchedulingIgnoredDuringExecution:
+    nodeSelectorTerms:
+    - matchExpressions:
+      - key: node-ready/verified
+        operator: DoesNotExist
+
+# Allow scheduling on tainted nodes
+tolerations:
+  - effect: NoSchedule
+    key: node-ready/unverified
+    operator: Exists
+  - effect: NoSchedule
+    key: node.kubernetes.io/not-ready
+    operator: Exists
+  - effect: NoSchedule
+    key: node.kubernetes.io/unreachable
+    operator: Exists
+
+nodeSelector: {}
+
+priorityClassName: "system-node-critical"
+
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 1
+
+# Metrics configuration
+metrics:
+  enabled: true
+  port: 8080
