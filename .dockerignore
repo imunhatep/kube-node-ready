@@ -1,0 +1,43 @@
+# Binaries
+bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test files
+*.test
+*.out
+coverage.txt
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+dist/
+build/
+
+# Documentation
+*.md
+PLAN.md
+ARCHITECTURE.md
+CHANGES.md
+COMPARISON.md
+REVIEW.md
+DAEMONSET_CONFIG.md
+
+# Git
+.git/
+.gitignore
+
+# Helm
+deploy/helm/**/charts/
+deploy/helm/**/Chart.lock

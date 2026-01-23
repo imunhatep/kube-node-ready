@@ -1,0 +1,44 @@
+# Build stage
+FROM golang:1.25-alpine AS builder
+
+# Install build dependencies
+RUN apk add --no-cache git ca-certificates
+
+WORKDIR /build
+
+# Copy go mod files
+COPY go.mod go.sum ./
+
+# Download dependencies
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build the binary
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -ldflags="-w -s" \
+    -o kube-node-ready \
+    ./cmd/kube-node-ready
+
+# Runtime stage
+FROM alpine:3.19
+
+# Install ca-certificates for HTTPS connections
+RUN apk add --no-cache ca-certificates
+
+# Create non-root user
+RUN addgroup -g 1000 nodecheck && \
+    adduser -D -u 1000 -G nodecheck nodecheck
+
+# Copy binary from builder
+COPY --from=builder /build/kube-node-ready /usr/local/bin/kube-node-ready
+
+# Set ownership
+RUN chown nodecheck:nodecheck /usr/local/bin/kube-node-ready
+
+# Use non-root user
+USER nodecheck
+
+# Set entrypoint
+ENTRYPOINT ["/usr/local/bin/kube-node-ready"]
