@@ -14,5 +14,4 @@ home: https://github.com/imunhatep/kube-node-ready
 sources:
   - https://github.com/imunhatep/kube-node-ready
 maintainers:
-  - name: Aleh Hutnikau
-    email: aleh.hutnikau@gmail.com
+  - name: Artyom Sukharev

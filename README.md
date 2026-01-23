@@ -259,7 +259,6 @@ go run ./cmd/kube-node-ready --dry-run --log-level=debug --log-format=console
 - ❌ Does NOT modify node taints or labels
 - Perfect for development and testing
 
-See [docs/DRY_RUN.md](docs/DRY_RUN.md) for complete dry-run documentation.
 
 ### Build
 
