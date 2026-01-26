@@ -259,3 +259,35 @@ jobs:
         files: dist/*.tgz
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  helm-release:
+    name: Release Helm Chart to GitHub Pages
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test, lint, helm-lint]
+    permissions:
+      contents: write
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Configure Git
+      run: |
+        git config user.name "$GITHUB_ACTOR"
+        git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+
+    - name: Install Helm
+      uses: azure/setup-helm@v4
+      with:
+        version: v3.14.0
+
+    - name: Run chart-releaser
+      uses: helm/chart-releaser-action@v1.6.0
+      env:
+        CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+      with:
+        charts_dir: deploy/helm
+        skip_existing: true
+
