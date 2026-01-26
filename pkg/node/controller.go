@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -12,6 +13,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/imunhatep/kube-node-ready/pkg/config"
+	"github.com/imunhatep/kube-node-ready/pkg/metrics"
 )
 
 // Controller handles node operations
@@ -73,16 +75,47 @@ func (m *Controller) RemoveTaintAndAddLabel(ctx context.Context) error {
 
 	klog.InfoS("Applying patch to node", "patch", string(patchBytes))
 
-	_, err = m.clientset.CoreV1().Nodes().Patch(
-		ctx,
-		m.config.NodeName,
-		types.JSONPatchType,
-		patchBytes,
-		metav1.PatchOptions{},
-	)
-	if err != nil {
-		return fmt.Errorf("failed to patch node: %w", err)
+	// Remove taint with metrics
+	if taintIndex >= 0 {
+		start := time.Now()
+		_, err = m.clientset.CoreV1().Nodes().Patch(
+			ctx,
+			m.config.NodeName,
+			types.JSONPatchType,
+			patchBytes,
+			metav1.PatchOptions{},
+		)
+		duration := time.Since(start)
+
+		if err != nil {
+			metrics.NodeTaintRemovalTotal.WithLabelValues(m.config.NodeName, "failure").Inc()
+			metrics.NodeLabelAddTotal.WithLabelValues(m.config.NodeName, "failure").Inc()
+			return fmt.Errorf("failed to patch node: %w", err)
+		}
+
+		metrics.NodeTaintRemovalTotal.WithLabelValues(m.config.NodeName, "success").Inc()
+		metrics.NodeUpdateDuration.WithLabelValues(m.config.NodeName, "taint_removal").Observe(duration.Seconds())
+	} else {
+		// No taint to remove, just add label
+		start := time.Now()
+		_, err = m.clientset.CoreV1().Nodes().Patch(
+			ctx,
+			m.config.NodeName,
+			types.JSONPatchType,
+			patchBytes,
+			metav1.PatchOptions{},
+		)
+		duration := time.Since(start)
+
+		if err != nil {
+			metrics.NodeLabelAddTotal.WithLabelValues(m.config.NodeName, "failure").Inc()
+			return fmt.Errorf("failed to patch node: %w", err)
+		}
+
+		metrics.NodeUpdateDuration.WithLabelValues(m.config.NodeName, "label_add").Observe(duration.Seconds())
 	}
+
+	metrics.NodeLabelAddTotal.WithLabelValues(m.config.NodeName, "success").Inc()
 
 	klog.InfoS("Successfully updated node",
 		"node", m.config.NodeName,

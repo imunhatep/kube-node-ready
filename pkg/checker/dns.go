@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"k8s.io/klog/v2"
+
+	"github.com/imunhatep/kube-node-ready/pkg/metrics"
 )
 
 // DNSChecker performs DNS resolution checks
@@ -37,7 +39,11 @@ func (d *DNSChecker) Check(ctx context.Context, domain string) error {
 	addrs, err := resolver.LookupHost(checkCtx, domain)
 	duration := time.Since(start)
 
+	// Record metrics
+	metrics.DNSCheckDuration.WithLabelValues(domain).Observe(duration.Seconds())
+
 	if err != nil {
+		metrics.DNSCheckTotal.WithLabelValues(domain, "failure").Inc()
 		klog.ErrorS(err, "DNS check failed",
 			"domain", domain,
 			"duration", duration,
@@ -46,6 +52,7 @@ func (d *DNSChecker) Check(ctx context.Context, domain string) error {
 	}
 
 	if len(addrs) == 0 {
+		metrics.DNSCheckTotal.WithLabelValues(domain, "failure").Inc()
 		klog.ErrorS(nil, "DNS check returned no addresses",
 			"domain", domain,
 			"duration", duration,
@@ -53,6 +60,7 @@ func (d *DNSChecker) Check(ctx context.Context, domain string) error {
 		return fmt.Errorf("DNS resolution returned no addresses for %s", domain)
 	}
 
+	metrics.DNSCheckTotal.WithLabelValues(domain, "success").Inc()
 	klog.InfoS("DNS check passed",
 		"domain", domain,
 		"addresses", addrs,

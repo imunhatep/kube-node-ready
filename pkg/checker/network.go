@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"k8s.io/klog/v2"
+
+	"github.com/imunhatep/kube-node-ready/pkg/metrics"
 )
 
 // NetworkChecker performs network connectivity checks
@@ -35,7 +37,11 @@ func (n *NetworkChecker) CheckTCP(ctx context.Context, address string) error {
 	conn, err := dialer.DialContext(ctx, "tcp", address)
 	duration := time.Since(start)
 
+	// Record metrics
+	metrics.NetworkCheckDuration.WithLabelValues(address).Observe(duration.Seconds())
+
 	if err != nil {
+		metrics.NetworkCheckTotal.WithLabelValues(address, "failure").Inc()
 		klog.ErrorS(err, "TCP connectivity check failed",
 			"address", address,
 			"duration", duration,
@@ -44,6 +50,7 @@ func (n *NetworkChecker) CheckTCP(ctx context.Context, address string) error {
 	}
 	defer conn.Close()
 
+	metrics.NetworkCheckTotal.WithLabelValues(address, "success").Inc()
 	klog.InfoS("TCP connectivity check passed",
 		"address", address,
 		"duration", duration,

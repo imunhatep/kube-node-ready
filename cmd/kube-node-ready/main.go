@@ -15,6 +15,7 @@ import (
 	"github.com/imunhatep/kube-node-ready/pkg/checker"
 	"github.com/imunhatep/kube-node-ready/pkg/config"
 	"github.com/imunhatep/kube-node-ready/pkg/k8sclient"
+	"github.com/imunhatep/kube-node-ready/pkg/metrics"
 	"github.com/imunhatep/kube-node-ready/pkg/node"
 )
 
@@ -201,6 +202,9 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		"buildDate", buildDate,
 	)
 
+	// Set build info for Prometheus metrics
+	metrics.SetBuildInfo(version, commitHash, buildDate)
+
 	// Build configuration directly from CLI flags (which already include env vars)
 	cfg := &config.Config{
 		NodeName:              cmd.String("node-name"),
@@ -240,7 +244,26 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		"maxRetries", cfg.MaxRetries,
 		"retryBackoff", cfg.RetryBackoff,
 		"dryRun", cfg.DryRun,
+		"metricsEnabled", cfg.MetricsEnabled,
+		"metricsPort", cfg.MetricsPort,
 	)
+
+	// Start metrics server if enabled
+	var metricsServer *metrics.Server
+	if cfg.MetricsEnabled {
+		metricsServer = metrics.NewServer(cfg.MetricsPort)
+		if err := metricsServer.Start(); err != nil {
+			klog.ErrorS(err, "Failed to start metrics server")
+			return fmt.Errorf("failed to start metrics server: %w", err)
+		}
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := metricsServer.Shutdown(shutdownCtx); err != nil {
+				klog.ErrorS(err, "Error shutting down metrics server")
+			}
+		}()
+	}
 
 	// Create Kubernetes client
 	clientset, err := k8sclient.CreateClient(cfg)

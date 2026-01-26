@@ -8,6 +8,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
+
+	"github.com/imunhatep/kube-node-ready/pkg/metrics"
 )
 
 // KubernetesChecker performs Kubernetes API checks
@@ -37,18 +39,24 @@ func (k *KubernetesChecker) Check(ctx context.Context) error {
 	version, err := k.clientset.Discovery().ServerVersion()
 	duration := time.Since(start)
 
+	// Record metrics
+	metrics.KubernetesCheckDuration.WithLabelValues("api").Observe(duration.Seconds())
+
 	// Ensure context is respected
 	if checkCtx.Err() != nil {
+		metrics.KubernetesCheckTotal.WithLabelValues("api", "failure").Inc()
 		return fmt.Errorf("Kubernetes API check cancelled: %w", checkCtx.Err())
 	}
 
 	if err != nil {
+		metrics.KubernetesCheckTotal.WithLabelValues("api", "failure").Inc()
 		klog.ErrorS(err, "Kubernetes API check failed",
 			"duration", duration,
 		)
 		return fmt.Errorf("Kubernetes API check failed: %w", err)
 	}
 
+	metrics.KubernetesCheckTotal.WithLabelValues("api", "success").Inc()
 	klog.InfoS("Kubernetes API check passed",
 		"version", version.GitVersion,
 		"duration", duration,
@@ -68,9 +76,15 @@ func (k *KubernetesChecker) CheckServiceDiscovery(ctx context.Context) error {
 
 	// Try to get the kubernetes service in default namespace
 	svc, err := k.clientset.CoreV1().Services("default").Get(checkCtx, "kubernetes", metav1.GetOptions{})
+	duration := time.Since(start)
+
+	// Record metrics
+	metrics.KubernetesCheckDuration.WithLabelValues("service_discovery").Observe(duration.Seconds())
+
 	if err != nil {
+		metrics.KubernetesCheckTotal.WithLabelValues("service_discovery", "failure").Inc()
 		klog.ErrorS(err, "Service discovery check failed",
-			"duration", time.Since(start),
+			"duration", duration,
 		)
 		return fmt.Errorf("service discovery failed: %w", err)
 	}
@@ -78,12 +92,13 @@ func (k *KubernetesChecker) CheckServiceDiscovery(ctx context.Context) error {
 	klog.InfoS("Service discovery check passed",
 		"service", svc.Name,
 		"clusterIP", svc.Spec.ClusterIP,
-		"duration", time.Since(start),
+		"duration", duration,
 	)
 
 	// Check endpoints
 	endpoints, err := k.clientset.CoreV1().Endpoints("default").Get(checkCtx, "kubernetes", metav1.GetOptions{})
 	if err != nil {
+		metrics.KubernetesCheckTotal.WithLabelValues("service_discovery", "failure").Inc()
 		klog.ErrorS(err, "Endpoints check failed",
 			"duration", time.Since(start),
 		)
@@ -91,14 +106,16 @@ func (k *KubernetesChecker) CheckServiceDiscovery(ctx context.Context) error {
 	}
 
 	if len(endpoints.Subsets) == 0 {
+		metrics.KubernetesCheckTotal.WithLabelValues("service_discovery", "failure").Inc()
 		klog.ErrorS(nil, "Endpoints check failed - no subsets",
 			"duration", time.Since(start),
 		)
 		return fmt.Errorf("no endpoints found for kubernetes service")
 	}
 
+	metrics.KubernetesCheckTotal.WithLabelValues("service_discovery", "success").Inc()
 	klog.InfoS("Endpoints check passed",
-		"subsets", len(endpoints.Subsets),
+		"endpoints", len(endpoints.Subsets),
 		"duration", time.Since(start),
 	)
 

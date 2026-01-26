@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/imunhatep/kube-node-ready/pkg/metrics"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 
@@ -116,17 +117,35 @@ func (c *Checker) runServiceDiscoveryCheck(ctx context.Context) error {
 // RunWithRetry runs all checks with retry logic
 func (c *Checker) RunWithRetry(ctx context.Context) error {
 	var lastErr error
+	verificationStart := time.Now()
 
 	for attempt := 1; attempt <= c.config.MaxRetries; attempt++ {
 		klog.InfoS("Verification attempt", "attempt", attempt, "maxRetries", c.config.MaxRetries)
 
 		err := c.RunAllChecks(ctx)
 		if err == nil {
+			// Record success metrics
+			duration := time.Since(verificationStart)
+			metrics.VerificationDuration.WithLabelValues(c.config.NodeName).Observe(duration.Seconds())
+			metrics.VerificationAttemptsTotal.WithLabelValues(c.config.NodeName, "success").Inc()
+
+			if attempt > 1 {
+				metrics.VerificationRetriesTotal.Add(float64(attempt - 1))
+			}
+
 			klog.InfoS("Verification successful", "attempt", attempt)
+
+			// Set node status to ready
+			metrics.SetNodeStatus(c.config.NodeName, true)
+
 			return nil
 		}
 
 		lastErr = err
+
+		// Record failure for this attempt
+		metrics.VerificationAttemptsTotal.WithLabelValues(c.config.NodeName, "failure").Inc()
+
 		klog.InfoS("Verification attempt failed",
 			"attempt", attempt,
 			"maxRetries", c.config.MaxRetries,
@@ -135,6 +154,7 @@ func (c *Checker) RunWithRetry(ctx context.Context) error {
 
 		// Don't sleep after the last attempt
 		if attempt < c.config.MaxRetries {
+			metrics.VerificationRetriesTotal.Inc()
 			backoff := c.calculateBackoff(attempt)
 			klog.InfoS("Waiting before retry", "backoff", backoff)
 
@@ -146,6 +166,9 @@ func (c *Checker) RunWithRetry(ctx context.Context) error {
 			}
 		}
 	}
+
+	// Set node status to not ready
+	metrics.SetNodeStatus(c.config.NodeName, false)
 
 	klog.ErrorS(lastErr, "All verification attempts failed", "attempts", c.config.MaxRetries)
 	return fmt.Errorf("verification failed after %d attempts: %w", c.config.MaxRetries, lastErr)
