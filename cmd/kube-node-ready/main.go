@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
@@ -9,11 +10,10 @@ import (
 	"time"
 
 	"github.com/urfave/cli/v3"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/klog/v2"
 
 	"github.com/imunhatep/kube-node-ready/pkg/checker"
 	"github.com/imunhatep/kube-node-ready/pkg/config"
@@ -21,6 +21,11 @@ import (
 )
 
 func main() {
+	// Initialize klog to output to stderr (standard for Kubernetes)
+	klog.InitFlags(nil)
+	flag.Set("logtostderr", "true")
+	flag.Set("v", "0")
+
 	app := &cli.Command{
 		Name:    "kube-node-ready",
 		Usage:   "Kubernetes node readiness verification tool",
@@ -51,18 +56,6 @@ func main() {
 				Sources: cli.EnvVars("RETRY_BACKOFF"),
 			},
 			&cli.StringFlag{
-				Name:    "log-level",
-				Usage:   "Log level (debug, info, warn, error)",
-				Value:   "",
-				Sources: cli.EnvVars("LOG_LEVEL"),
-			},
-			&cli.StringFlag{
-				Name:    "log-format",
-				Usage:   "Log format (json, console)",
-				Value:   "",
-				Sources: cli.EnvVars("LOG_FORMAT"),
-			},
-			&cli.StringFlag{
 				Name:    "kubeconfig",
 				Usage:   "Path to kubeconfig file (for dry-run mode)",
 				Value:   "",
@@ -71,6 +64,8 @@ func main() {
 		},
 		Action: run,
 	}
+
+	defer klog.Flush()
 
 	if err := app.Run(context.Background(), os.Args); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -84,8 +79,6 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	skipK8s := cmd.Bool("skip-k8s")
 	maxRetries := cmd.Int("max-retries")
 	retryBackoff := cmd.String("retry-backoff")
-	logLevel := cmd.String("log-level")
-	logFormat := cmd.String("log-format")
 	kubeconfig := cmd.String("kubeconfig")
 
 	// If skip-k8s is set, enable dry-run
@@ -93,28 +86,13 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		dryRun = true
 	}
 
-	// Create logger with initial settings
-	initialLogLevel := "info"
-	initialLogFormat := "json"
-	if logLevel != "" {
-		initialLogLevel = logLevel
-	}
-	if logFormat != "" {
-		initialLogFormat = logFormat
-	}
-
-	logger, err := createLogger(initialLogLevel, initialLogFormat)
-	if err != nil {
-		return fmt.Errorf("failed to create logger: %w", err)
-	}
-	defer logger.Sync()
-
-	logger.Info("Starting kube-node-ready")
+	klog.Info("Starting kube-node-ready")
 
 	// Load configuration from environment
 	cfg, err := config.LoadFromEnv()
 	if err != nil {
-		logger.Fatal("Failed to load configuration", zap.Error(err))
+		klog.ErrorS(err, "Failed to load configuration")
+		return fmt.Errorf("failed to load configuration: %w", err)
 	}
 
 	// Override with command-line flags
@@ -127,36 +105,24 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	if retryBackoff != "" {
 		cfg.RetryBackoff = retryBackoff
 	}
-	if logLevel != "" {
-		cfg.LogLevel = logLevel
-	}
-	if logFormat != "" {
-		cfg.LogFormat = logFormat
-	}
 	if kubeconfig != "" {
 		cfg.KubeconfigPath = kubeconfig
 	}
 
 	// Validate configuration after applying flags
 	if err := cfg.Validate(); err != nil {
-		logger.Fatal("Configuration validation failed", zap.Error(err))
+		klog.ErrorS(err, "Configuration validation failed")
+		return fmt.Errorf("configuration validation failed: %w", err)
 	}
 
-	// Update logger with configured log level
-	logger, err = createLogger(cfg.LogLevel, cfg.LogFormat)
-	if err != nil {
-		logger.Fatal("Failed to update logger", zap.Error(err))
-	}
-	defer logger.Sync()
-
-	logger.Info("Configuration loaded",
-		zap.String("nodeName", cfg.NodeName),
-		zap.String("namespace", cfg.Namespace),
-		zap.Duration("timeout", cfg.InitialCheckTimeout),
-		zap.Int("maxRetries", cfg.MaxRetries),
-		zap.String("retryBackoff", cfg.RetryBackoff),
-		zap.Bool("dryRun", cfg.DryRun),
-		zap.Bool("skipK8s", skipK8s),
+	klog.InfoS("Configuration loaded",
+		"nodeName", cfg.NodeName,
+		"namespace", cfg.Namespace,
+		"timeout", cfg.InitialCheckTimeout,
+		"maxRetries", cfg.MaxRetries,
+		"retryBackoff", cfg.RetryBackoff,
+		"dryRun", cfg.DryRun,
+		"skipK8s", skipK8s,
 	)
 
 	// In dry-run mode without skip-k8s, still try to create client if kubeconfig is available
@@ -164,9 +130,9 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	var clientset *kubernetes.Clientset
 
 	if skipK8s {
-		logger.Warn("Running with --skip-k8s flag: Kubernetes client will not be created")
-		logger.Info("This mode is for testing configuration only. No network checks will be performed.")
-		logger.Info("Configuration validation successful")
+		klog.Info("Running with --skip-k8s flag: Kubernetes client will not be created")
+		klog.Info("This mode is for testing configuration only. No network checks will be performed.")
+		klog.Info("Configuration validation successful")
 		os.Exit(0)
 	}
 
@@ -183,32 +149,33 @@ func run(ctx context.Context, cmd *cli.Command) error {
 
 		// Check if kubeconfig exists
 		if _, statErr := os.Stat(kubeconfigPath); os.IsNotExist(statErr) {
-			logger.Warn("Dry-run mode: kubeconfig not found, skipping Kubernetes client creation",
-				zap.String("kubeconfigPath", kubeconfigPath))
-			logger.Info("To test with a real cluster, provide --kubeconfig or use --skip-k8s to suppress this warning")
+			klog.InfoS("Dry-run mode: kubeconfig not found, skipping Kubernetes client creation",
+				"kubeconfigPath", kubeconfigPath)
+			klog.Info("To test with a real cluster, provide --kubeconfig or use --skip-k8s to suppress this warning")
 			os.Exit(0)
 		}
 
 		clientset, err = createKubernetesClient(cfg.DryRun, cfg.KubeconfigPath)
 		if err != nil {
-			logger.Warn("Dry-run mode: failed to create Kubernetes client",
-				zap.Error(err))
-			logger.Info("Continuing with network checks only (DNS, connectivity)")
-			logger.Info("Kubernetes API checks will be skipped")
+			klog.InfoS("Dry-run mode: failed to create Kubernetes client",
+				"error", err)
+			klog.Info("Continuing with network checks only (DNS, connectivity)")
+			klog.Info("Kubernetes API checks will be skipped")
 			// clientset remains nil, checker will handle this
 		}
 	} else {
 		// Production mode - client is required
 		clientset, err = createKubernetesClient(cfg.DryRun, cfg.KubeconfigPath)
 		if err != nil {
-			logger.Fatal("Failed to create Kubernetes client", zap.Error(err))
+			klog.ErrorS(err, "Failed to create Kubernetes client")
+			return fmt.Errorf("failed to create Kubernetes client: %w", err)
 		}
 	}
 
 	if clientset != nil {
-		logger.Info("Kubernetes client created successfully")
+		klog.Info("Kubernetes client created successfully")
 	} else {
-		logger.Info("Running without Kubernetes client (network checks only)")
+		klog.Info("Running without Kubernetes client (network checks only)")
 	}
 
 	// Create context with timeout and cancellation
@@ -220,68 +187,47 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		sig := <-sigChan
-		logger.Info("Received signal, shutting down", zap.String("signal", sig.String()))
+		klog.InfoS("Received signal, shutting down", "signal", sig.String())
 		cancel()
 	}()
 
 	// Create checker
-	chk := checker.NewChecker(logger, cfg, clientset)
+	chk := checker.NewChecker(cfg, clientset)
 
 	// Run verification checks with retry
-	logger.Info("Starting verification checks")
+	klog.Info("Starting verification checks")
 	if err := chk.RunWithRetry(runCtx); err != nil {
-		logger.Fatal("Verification failed", zap.Error(err))
+		klog.ErrorS(err, "Verification failed")
+		return fmt.Errorf("verification failed: %w", err)
 	}
 
-	logger.Info("All verification checks passed")
+	klog.Info("All verification checks passed")
 
 	// Remove taint and add verified label (only if not in dry-run and clientset is available)
 	if cfg.DryRun {
-		logger.Info("Dry-run mode: skipping node taint/label updates")
-		logger.Info("In production mode, node would be marked as verified")
+		klog.Info("Dry-run mode: skipping node taint/label updates")
+		klog.Info("In production mode, node would be marked as verified")
 	} else if clientset == nil {
-		logger.Warn("No Kubernetes client available: skipping node updates")
+		klog.Info("No Kubernetes client available: skipping node updates")
 	} else {
-		logger.Info("Updating node status")
-		nodeManager := node.NewManager(logger, cfg, clientset)
+		klog.Info("Updating node status")
+		nodeManager := node.NewManager(cfg, clientset)
 		if err := nodeManager.RemoveTaintAndAddLabel(context.Background()); err != nil {
-			logger.Fatal("Failed to update node", zap.Error(err))
+			klog.ErrorS(err, "Failed to update node")
+			return fmt.Errorf("failed to update node: %w", err)
 		}
 	}
 
-	logger.Info("Node verification completed successfully",
-		zap.String("node", cfg.NodeName),
-		zap.String("label", cfg.VerifiedLabel),
+	klog.InfoS("Node verification completed successfully",
+		"node", cfg.NodeName,
+		"label", cfg.VerifiedLabel,
 	)
 
 	// Give Kubernetes time to detect the label change before pod terminates
 	time.Sleep(2 * time.Second)
 
-	logger.Info("Exiting successfully")
+	klog.Info("Exiting successfully")
 	return nil
-}
-
-// createLogger creates a zap logger with the specified level and format
-func createLogger(level, format string) (*zap.Logger, error) {
-	// Parse log level
-	var zapLevel zapcore.Level
-	if err := zapLevel.UnmarshalText([]byte(level)); err != nil {
-		zapLevel = zapcore.InfoLevel
-	}
-
-	// Create config
-	var loggerConfig zap.Config
-	if format == "json" {
-		loggerConfig = zap.NewProductionConfig()
-	} else {
-		loggerConfig = zap.NewDevelopmentConfig()
-	}
-
-	loggerConfig.Level = zap.NewAtomicLevelAt(zapLevel)
-	loggerConfig.EncoderConfig.TimeKey = "timestamp"
-	loggerConfig.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
-
-	return loggerConfig.Build()
 }
 
 // createKubernetesClient creates a Kubernetes client (in-cluster or from kubeconfig)

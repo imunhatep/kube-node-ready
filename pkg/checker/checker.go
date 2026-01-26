@@ -5,15 +5,14 @@ import (
 	"fmt"
 	"time"
 
-	"go.uber.org/zap"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/klog/v2"
 
 	"github.com/imunhatep/kube-node-ready/pkg/config"
 )
 
 // Checker orchestrates all verification checks
 type Checker struct {
-	logger            *zap.Logger
 	config            *config.Config
 	dnsChecker        *DNSChecker
 	kubernetesChecker *KubernetesChecker
@@ -21,24 +20,23 @@ type Checker struct {
 }
 
 // NewChecker creates a new checker orchestrator
-func NewChecker(logger *zap.Logger, cfg *config.Config, clientset *kubernetes.Clientset) *Checker {
+func NewChecker(cfg *config.Config, clientset *kubernetes.Clientset) *Checker {
 	var kubernetesChecker *KubernetesChecker
 	if clientset != nil {
-		kubernetesChecker = NewKubernetesChecker(logger, clientset, 10*time.Second)
+		kubernetesChecker = NewKubernetesChecker(clientset, 10*time.Second)
 	}
 
 	return &Checker{
-		logger:            logger,
 		config:            cfg,
-		dnsChecker:        NewDNSChecker(logger, 5*time.Second),
+		dnsChecker:        NewDNSChecker(5 * time.Second),
 		kubernetesChecker: kubernetesChecker,
-		networkChecker:    NewNetworkChecker(logger, 10*time.Second),
+		networkChecker:    NewNetworkChecker(10 * time.Second),
 	}
 }
 
 // RunAllChecks executes all verification checks
 func (c *Checker) RunAllChecks(ctx context.Context) error {
-	c.logger.Info("Starting all verification checks")
+	klog.Info("Starting all verification checks")
 
 	// 1. DNS Check
 	if err := c.runDNSChecks(ctx); err != nil {
@@ -60,12 +58,12 @@ func (c *Checker) RunAllChecks(ctx context.Context) error {
 		return err
 	}
 
-	c.logger.Info("All verification checks passed successfully")
+	klog.Info("All verification checks passed successfully")
 	return nil
 }
 
 func (c *Checker) runDNSChecks(ctx context.Context) error {
-	c.logger.Info("Running DNS checks", zap.Strings("domains", c.config.DNSTestDomains))
+	klog.InfoS("Running DNS checks", "domains", c.config.DNSTestDomains)
 
 	if err := c.dnsChecker.CheckAll(ctx, c.config.DNSTestDomains); err != nil {
 		return fmt.Errorf("DNS check failed: %w", err)
@@ -76,11 +74,11 @@ func (c *Checker) runDNSChecks(ctx context.Context) error {
 
 func (c *Checker) runKubernetesAPICheck(ctx context.Context) error {
 	if c.kubernetesChecker == nil {
-		c.logger.Info("Skipping Kubernetes API check (no client available)")
+		klog.Info("Skipping Kubernetes API check (no client available)")
 		return nil
 	}
 
-	c.logger.Info("Running Kubernetes API check")
+	klog.Info("Running Kubernetes API check")
 
 	if err := c.kubernetesChecker.Check(ctx); err != nil {
 		return fmt.Errorf("Kubernetes API check failed: %w", err)
@@ -90,7 +88,7 @@ func (c *Checker) runKubernetesAPICheck(ctx context.Context) error {
 }
 
 func (c *Checker) runNetworkCheck(ctx context.Context) error {
-	c.logger.Info("Running network connectivity check")
+	klog.Info("Running network connectivity check")
 
 	// Check connectivity to Kubernetes API server
 	if err := c.networkChecker.CheckKubernetesService(ctx, c.config.KubernetesServiceHost, c.config.KubernetesServicePort); err != nil {
@@ -102,11 +100,11 @@ func (c *Checker) runNetworkCheck(ctx context.Context) error {
 
 func (c *Checker) runServiceDiscoveryCheck(ctx context.Context) error {
 	if c.kubernetesChecker == nil {
-		c.logger.Info("Skipping service discovery check (no client available)")
+		klog.Info("Skipping service discovery check (no client available)")
 		return nil
 	}
 
-	c.logger.Info("Running service discovery check")
+	klog.Info("Running service discovery check")
 
 	if err := c.kubernetesChecker.CheckServiceDiscovery(ctx); err != nil {
 		return fmt.Errorf("service discovery check failed: %w", err)
@@ -120,25 +118,25 @@ func (c *Checker) RunWithRetry(ctx context.Context) error {
 	var lastErr error
 
 	for attempt := 1; attempt <= c.config.MaxRetries; attempt++ {
-		c.logger.Info("Verification attempt", zap.Int("attempt", attempt), zap.Int("maxRetries", c.config.MaxRetries))
+		klog.InfoS("Verification attempt", "attempt", attempt, "maxRetries", c.config.MaxRetries)
 
 		err := c.RunAllChecks(ctx)
 		if err == nil {
-			c.logger.Info("Verification successful", zap.Int("attempt", attempt))
+			klog.InfoS("Verification successful", "attempt", attempt)
 			return nil
 		}
 
 		lastErr = err
-		c.logger.Warn("Verification attempt failed",
-			zap.Int("attempt", attempt),
-			zap.Int("maxRetries", c.config.MaxRetries),
-			zap.Error(err),
+		klog.InfoS("Verification attempt failed",
+			"attempt", attempt,
+			"maxRetries", c.config.MaxRetries,
+			"error", err,
 		)
 
 		// Don't sleep after the last attempt
 		if attempt < c.config.MaxRetries {
 			backoff := c.calculateBackoff(attempt)
-			c.logger.Info("Waiting before retry", zap.Duration("backoff", backoff))
+			klog.InfoS("Waiting before retry", "backoff", backoff)
 
 			select {
 			case <-time.After(backoff):
@@ -149,7 +147,7 @@ func (c *Checker) RunWithRetry(ctx context.Context) error {
 		}
 	}
 
-	c.logger.Error("All verification attempts failed", zap.Int("attempts", c.config.MaxRetries), zap.Error(lastErr))
+	klog.ErrorS(lastErr, "All verification attempts failed", "attempts", c.config.MaxRetries)
 	return fmt.Errorf("verification failed after %d attempts: %w", c.config.MaxRetries, lastErr)
 }
 
@@ -157,7 +155,7 @@ func (c *Checker) calculateBackoff(attempt int) time.Duration {
 	if c.config.RetryBackoff == config.RetryBackoffExponential {
 		// Exponential backoff: 1s, 2s, 4s, 8s, 16s
 		backoff := time.Duration(1<<uint(attempt-1)) * time.Second
-		// Cap at 30 seconds
+		// Cap at 300 seconds
 		if backoff > 30*time.Second {
 			backoff = 30 * time.Second
 		}

@@ -5,22 +5,20 @@ import (
 	"fmt"
 	"time"
 
-	"go.uber.org/zap"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/klog/v2"
 )
 
 // KubernetesChecker performs Kubernetes API checks
 type KubernetesChecker struct {
-	logger    *zap.Logger
 	clientset *kubernetes.Clientset
 	timeout   time.Duration
 }
 
 // NewKubernetesChecker creates a new Kubernetes API checker
-func NewKubernetesChecker(logger *zap.Logger, clientset *kubernetes.Clientset, timeout time.Duration) *KubernetesChecker {
+func NewKubernetesChecker(clientset *kubernetes.Clientset, timeout time.Duration) *KubernetesChecker {
 	return &KubernetesChecker{
-		logger:    logger,
 		clientset: clientset,
 		timeout:   timeout,
 	}
@@ -29,7 +27,7 @@ func NewKubernetesChecker(logger *zap.Logger, clientset *kubernetes.Clientset, t
 // Check performs Kubernetes API connectivity check
 func (k *KubernetesChecker) Check(ctx context.Context) error {
 	start := time.Now()
-	k.logger.Info("Starting Kubernetes API check")
+	klog.Info("Starting Kubernetes API check")
 
 	// Create a context with timeout
 	checkCtx, cancel := context.WithTimeout(ctx, k.timeout)
@@ -45,16 +43,15 @@ func (k *KubernetesChecker) Check(ctx context.Context) error {
 	}
 
 	if err != nil {
-		k.logger.Error("Kubernetes API check failed",
-			zap.Duration("duration", duration),
-			zap.Error(err),
+		klog.ErrorS(err, "Kubernetes API check failed",
+			"duration", duration,
 		)
 		return fmt.Errorf("Kubernetes API check failed: %w", err)
 	}
 
-	k.logger.Info("Kubernetes API check passed",
-		zap.String("version", version.GitVersion),
-		zap.Duration("duration", duration),
+	klog.InfoS("Kubernetes API check passed",
+		"version", version.GitVersion,
+		"duration", duration,
 	)
 
 	return nil
@@ -63,7 +60,7 @@ func (k *KubernetesChecker) Check(ctx context.Context) error {
 // CheckServiceDiscovery verifies service and endpoint discovery
 func (k *KubernetesChecker) CheckServiceDiscovery(ctx context.Context) error {
 	start := time.Now()
-	k.logger.Info("Starting service discovery check")
+	klog.Info("Starting service discovery check")
 
 	// Create a context with timeout
 	checkCtx, cancel := context.WithTimeout(ctx, k.timeout)
@@ -72,39 +69,37 @@ func (k *KubernetesChecker) CheckServiceDiscovery(ctx context.Context) error {
 	// Try to get the kubernetes service in default namespace
 	svc, err := k.clientset.CoreV1().Services("default").Get(checkCtx, "kubernetes", metav1.GetOptions{})
 	if err != nil {
-		k.logger.Error("Service discovery check failed",
-			zap.Duration("duration", time.Since(start)),
-			zap.Error(err),
+		klog.ErrorS(err, "Service discovery check failed",
+			"duration", time.Since(start),
 		)
 		return fmt.Errorf("service discovery failed: %w", err)
 	}
 
-	k.logger.Info("Service discovery check passed",
-		zap.String("service", svc.Name),
-		zap.String("clusterIP", svc.Spec.ClusterIP),
-		zap.Duration("duration", time.Since(start)),
+	klog.InfoS("Service discovery check passed",
+		"service", svc.Name,
+		"clusterIP", svc.Spec.ClusterIP,
+		"duration", time.Since(start),
 	)
 
 	// Check endpoints
 	endpoints, err := k.clientset.CoreV1().Endpoints("default").Get(checkCtx, "kubernetes", metav1.GetOptions{})
 	if err != nil {
-		k.logger.Error("Endpoints check failed",
-			zap.Duration("duration", time.Since(start)),
-			zap.Error(err),
+		klog.ErrorS(err, "Endpoints check failed",
+			"duration", time.Since(start),
 		)
 		return fmt.Errorf("endpoints check failed: %w", err)
 	}
 
 	if len(endpoints.Subsets) == 0 {
-		k.logger.Error("Endpoints check failed - no subsets",
-			zap.Duration("duration", time.Since(start)),
+		klog.ErrorS(nil, "Endpoints check failed - no subsets",
+			"duration", time.Since(start),
 		)
 		return fmt.Errorf("no endpoints found for kubernetes service")
 	}
 
-	k.logger.Info("Endpoints check passed",
-		zap.Int("subsets", len(endpoints.Subsets)),
-		zap.Duration("duration", time.Since(start)),
+	klog.InfoS("Endpoints check passed",
+		"subsets", len(endpoints.Subsets),
+		"duration", time.Since(start),
 	)
 
 	return nil

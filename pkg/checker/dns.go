@@ -6,19 +6,17 @@ import (
 	"net"
 	"time"
 
-	"go.uber.org/zap"
+	"k8s.io/klog/v2"
 )
 
 // DNSChecker performs DNS resolution checks
 type DNSChecker struct {
-	logger  *zap.Logger
 	timeout time.Duration
 }
 
 // NewDNSChecker creates a new DNS checker
-func NewDNSChecker(logger *zap.Logger, timeout time.Duration) *DNSChecker {
+func NewDNSChecker(timeout time.Duration) *DNSChecker {
 	return &DNSChecker{
-		logger:  logger,
 		timeout: timeout,
 	}
 }
@@ -26,7 +24,7 @@ func NewDNSChecker(logger *zap.Logger, timeout time.Duration) *DNSChecker {
 // Check performs DNS resolution check for the given domain
 func (d *DNSChecker) Check(ctx context.Context, domain string) error {
 	start := time.Now()
-	d.logger.Info("Starting DNS check", zap.String("domain", domain))
+	klog.InfoS("Starting DNS check", "domain", domain)
 
 	// Create a context with timeout
 	checkCtx, cancel := context.WithTimeout(ctx, d.timeout)
@@ -40,26 +38,25 @@ func (d *DNSChecker) Check(ctx context.Context, domain string) error {
 	duration := time.Since(start)
 
 	if err != nil {
-		d.logger.Error("DNS check failed",
-			zap.String("domain", domain),
-			zap.Duration("duration", duration),
-			zap.Error(err),
+		klog.ErrorS(err, "DNS check failed",
+			"domain", domain,
+			"duration", duration,
 		)
 		return fmt.Errorf("DNS resolution failed for %s: %w", domain, err)
 	}
 
 	if len(addrs) == 0 {
-		d.logger.Error("DNS check returned no addresses",
-			zap.String("domain", domain),
-			zap.Duration("duration", duration),
+		klog.ErrorS(nil, "DNS check returned no addresses",
+			"domain", domain,
+			"duration", duration,
 		)
 		return fmt.Errorf("DNS resolution returned no addresses for %s", domain)
 	}
 
-	d.logger.Info("DNS check passed",
-		zap.String("domain", domain),
-		zap.Strings("addresses", addrs),
-		zap.Duration("duration", duration),
+	klog.InfoS("DNS check passed",
+		"domain", domain,
+		"addresses", addrs,
+		"duration", duration,
 	)
 
 	return nil

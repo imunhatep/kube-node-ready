@@ -6,19 +6,17 @@ import (
 	"net"
 	"time"
 
-	"go.uber.org/zap"
+	"k8s.io/klog/v2"
 )
 
 // NetworkChecker performs network connectivity checks
 type NetworkChecker struct {
-	logger  *zap.Logger
 	timeout time.Duration
 }
 
 // NewNetworkChecker creates a new network checker
-func NewNetworkChecker(logger *zap.Logger, timeout time.Duration) *NetworkChecker {
+func NewNetworkChecker(timeout time.Duration) *NetworkChecker {
 	return &NetworkChecker{
-		logger:  logger,
 		timeout: timeout,
 	}
 }
@@ -26,7 +24,7 @@ func NewNetworkChecker(logger *zap.Logger, timeout time.Duration) *NetworkChecke
 // CheckTCP performs a TCP connection check to the given address
 func (n *NetworkChecker) CheckTCP(ctx context.Context, address string) error {
 	start := time.Now()
-	n.logger.Info("Starting TCP connectivity check", zap.String("address", address))
+	klog.InfoS("Starting TCP connectivity check", "address", address)
 
 	// Create a dialer with timeout
 	dialer := &net.Dialer{
@@ -38,18 +36,17 @@ func (n *NetworkChecker) CheckTCP(ctx context.Context, address string) error {
 	duration := time.Since(start)
 
 	if err != nil {
-		n.logger.Error("TCP connectivity check failed",
-			zap.String("address", address),
-			zap.Duration("duration", duration),
-			zap.Error(err),
+		klog.ErrorS(err, "TCP connectivity check failed",
+			"address", address,
+			"duration", duration,
 		)
 		return fmt.Errorf("TCP connection to %s failed: %w", address, err)
 	}
 	defer conn.Close()
 
-	n.logger.Info("TCP connectivity check passed",
-		zap.String("address", address),
-		zap.Duration("duration", duration),
+	klog.InfoS("TCP connectivity check passed",
+		"address", address,
+		"duration", duration,
 	)
 
 	return nil

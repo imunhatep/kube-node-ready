@@ -5,26 +5,24 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/klog/v2"
 
 	"github.com/imunhatep/kube-node-ready/pkg/config"
 )
 
 // Manager handles node operations
 type Manager struct {
-	logger    *zap.Logger
 	config    *config.Config
 	clientset *kubernetes.Clientset
 }
 
 // NewManager creates a new node manager
-func NewManager(logger *zap.Logger, cfg *config.Config, clientset *kubernetes.Clientset) *Manager {
+func NewManager(cfg *config.Config, clientset *kubernetes.Clientset) *Manager {
 	return &Manager{
-		logger:    logger,
 		config:    cfg,
 		clientset: clientset,
 	}
@@ -32,10 +30,10 @@ func NewManager(logger *zap.Logger, cfg *config.Config, clientset *kubernetes.Cl
 
 // RemoveTaintAndAddLabel removes the verification taint and adds the verified label
 func (m *Manager) RemoveTaintAndAddLabel(ctx context.Context) error {
-	m.logger.Info("Updating node after successful verification",
-		zap.String("node", m.config.NodeName),
-		zap.String("taintKey", m.config.TaintKey),
-		zap.String("label", m.config.VerifiedLabel),
+	klog.InfoS("Updating node after successful verification",
+		"node", m.config.NodeName,
+		"taintKey", m.config.TaintKey,
+		"label", m.config.VerifiedLabel,
 	)
 
 	// Get the current node
@@ -50,13 +48,13 @@ func (m *Manager) RemoveTaintAndAddLabel(ctx context.Context) error {
 	// Find and remove the taint
 	taintIndex := m.findTaintIndex(node.Spec.Taints)
 	if taintIndex >= 0 {
-		m.logger.Info("Found taint to remove", zap.Int("index", taintIndex))
+		klog.InfoS("Found taint to remove", "index", taintIndex)
 		patches = append(patches, patchOperation{
 			Op:   "remove",
 			Path: fmt.Sprintf("/spec/taints/%d", taintIndex),
 		})
 	} else {
-		m.logger.Warn("Taint not found on node", zap.String("taintKey", m.config.TaintKey))
+		klog.InfoS("Taint not found on node", "taintKey", m.config.TaintKey)
 	}
 
 	// Add the verified label
@@ -73,7 +71,7 @@ func (m *Manager) RemoveTaintAndAddLabel(ctx context.Context) error {
 		return fmt.Errorf("failed to marshal patch: %w", err)
 	}
 
-	m.logger.Info("Applying patch to node", zap.String("patch", string(patchBytes)))
+	klog.InfoS("Applying patch to node", "patch", string(patchBytes))
 
 	_, err = m.clientset.CoreV1().Nodes().Patch(
 		ctx,
@@ -86,9 +84,9 @@ func (m *Manager) RemoveTaintAndAddLabel(ctx context.Context) error {
 		return fmt.Errorf("failed to patch node: %w", err)
 	}
 
-	m.logger.Info("Successfully updated node",
-		zap.String("node", m.config.NodeName),
-		zap.String("label", m.config.VerifiedLabel),
+	klog.InfoS("Successfully updated node",
+		"node", m.config.NodeName,
+		"label", m.config.VerifiedLabel,
 	)
 
 	return nil
