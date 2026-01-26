@@ -12,11 +12,11 @@ import (
 	"github.com/urfave/cli/v3"
 	"k8s.io/klog/v2"
 
-	"github.com/imunhatep/kube-node-ready/pkg/checker"
-	"github.com/imunhatep/kube-node-ready/pkg/config"
-	"github.com/imunhatep/kube-node-ready/pkg/k8sclient"
-	"github.com/imunhatep/kube-node-ready/pkg/metrics"
-	"github.com/imunhatep/kube-node-ready/pkg/node"
+	"github.com/imunhatep/kube-node-ready/internal/checker"
+	"github.com/imunhatep/kube-node-ready/internal/config"
+	"github.com/imunhatep/kube-node-ready/internal/k8sclient"
+	"github.com/imunhatep/kube-node-ready/internal/metrics"
+	"github.com/imunhatep/kube-node-ready/internal/node"
 )
 
 // Build-time variables that can be set using ldflags:

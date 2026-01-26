@@ -1,6 +1,8 @@
-# Config Package
+# Config Package (internal/config)
 
 This package handles configuration loading and validation for kube-node-ready.
+
+**Note**: This package is located in `internal/` as it contains application-specific logic not meant to be imported by external projects.
 
 ## Features
 

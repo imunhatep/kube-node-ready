@@ -9,7 +9,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
 
-	"github.com/imunhatep/kube-node-ready/pkg/config"
+	"github.com/imunhatep/kube-node-ready/internal/config"
 )
 
 // CreateClient creates a Kubernetes client based on the configuration mode

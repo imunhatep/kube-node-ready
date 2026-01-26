@@ -12,8 +12,8 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 
-	"github.com/imunhatep/kube-node-ready/pkg/config"
-	"github.com/imunhatep/kube-node-ready/pkg/metrics"
+	"github.com/imunhatep/kube-node-ready/internal/config"
+	"github.com/imunhatep/kube-node-ready/internal/metrics"
 )
 
 // Controller handles node operations
