@@ -273,6 +273,35 @@ jobs:
       with:
         fetch-depth: 0
 
+    - name: Extract version from tag
+      id: version
+      run: |
+        VERSION=${GITHUB_REF#refs/tags/v}
+        echo "version=${VERSION}" >> $GITHUB_OUTPUT
+        echo "Extracted version: ${VERSION}"
+
+    - name: Update Chart.yaml with tag version
+      run: |
+        VERSION=${{ steps.version.outputs.version }}
+        echo "Updating Chart.yaml to version ${VERSION}"
+        
+        # Update version and appVersion in Chart.yaml
+        sed -i "s/^version:.*/version: ${VERSION}/" deploy/helm/kube-node-ready/Chart.yaml
+        sed -i "s/^appVersion:.*/appVersion: \"${VERSION}\"/" deploy/helm/kube-node-ready/Chart.yaml
+        
+        echo "Updated Chart.yaml:"
+        cat deploy/helm/kube-node-ready/Chart.yaml
+
+    - name: Update values.yaml image tag
+      run: |
+        VERSION=${{ steps.version.outputs.version }}
+        echo "Updating values.yaml image tag to ${VERSION}"
+        
+        # Update image tag in values.yaml
+        sed -i "s/tag: \".*\"/tag: \"${VERSION}\"/" deploy/helm/kube-node-ready/values.yaml
+        
+        echo "Updated image tag in values.yaml"
+
     - name: Configure Git
       run: |
         git config user.name "$GITHUB_ACTOR"
