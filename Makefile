@@ -8,6 +8,14 @@ REGISTRY?=docker.io
 GO_VERSION=1.25
 HELM_CHART=./deploy/helm/kube-node-ready
 
+# Version information
+VERSION?=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+COMMIT_HASH?=$(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+BUILD_DATE?=$(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+# Linker flags to set version information
+LDFLAGS=-ldflags "-X main.version=$(VERSION) -X main.commitHash=$(COMMIT_HASH) -X main.buildDate=$(BUILD_DATE)"
+
 # Go parameters
 GOCMD=go
 GOBUILD=$(GOCMD) build
@@ -23,8 +31,9 @@ all: test build
 
 ## build: Build the binary
 build:
-	@echo "Building $(BINARY_NAME)..."
-	$(GOBUILD) -o bin/$(BINARY_NAME) -v ./cmd/kube-node-ready
+	@echo "Building $(BINARY_NAME) version $(VERSION)..."
+	mkdir -p bin/
+	$(GOBUILD) $(LDFLAGS) -o bin/$(BINARY_NAME) -v ./cmd/kube-node-ready
 
 ## clean: Clean build artifacts
 clean:
@@ -67,8 +76,13 @@ lint:
 
 ## docker-build: Build Docker image
 docker-build:
-	@echo "Building Docker image..."
-	docker build -t $(REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG) .
+	@echo "Building Docker image $(IMAGE_NAME):$(IMAGE_TAG) version $(VERSION)..."
+	docker build \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg COMMIT_HASH=$(COMMIT_HASH) \
+		--build-arg BUILD_DATE=$(BUILD_DATE) \
+		-t $(REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG) \
+		.
 
 ## docker-push: Push Docker image
 docker-push:
@@ -132,6 +146,12 @@ dry-run-debug: build
 install:
 	@echo "Installing $(BINARY_NAME)..."
 	$(GOCMD) install ./cmd/kube-node-ready
+
+## version: Show version information
+version:
+	@echo "Version:     $(VERSION)"
+	@echo "Commit Hash: $(COMMIT_HASH)"
+	@echo "Build Date:  $(BUILD_DATE)"
 
 ## help: Show this help message
 help:

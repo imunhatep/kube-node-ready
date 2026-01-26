@@ -1,6 +1,11 @@
 # Build stage
 FROM golang:1.25-alpine AS builder
 
+# Version arguments (can be passed at build time)
+ARG VERSION=dev
+ARG COMMIT_HASH=unknown
+ARG BUILD_DATE=unknown
+
 # Install build dependencies
 RUN apk add --no-cache git ca-certificates
 
@@ -15,9 +20,9 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build the binary
+# Build the binary with version information
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-    -ldflags="-w -s" \
+    -ldflags="-w -s -X main.version=${VERSION} -X main.commitHash=${COMMIT_HASH} -X main.buildDate=${BUILD_DATE}" \
     -o kube-node-ready \
     ./cmd/kube-node-ready
 

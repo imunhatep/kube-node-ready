@@ -56,6 +56,9 @@ config:
   # Maximum time for initial verification
   initialTimeout: "300s"
   
+  # Timeout for individual checks (DNS, network, Kubernetes API)
+  checkTimeout: "10s"
+  
   # Number of retry attempts
   maxRetries: 5
   
@@ -154,22 +157,22 @@ spec:
 
 ### 1. DNS Resolution
 - Tests: `kubernetes.default.svc.cluster.local`, external domains
-- Timeout: 5 seconds per check
+- Timeout: Configurable (default: 10 seconds)
 - Purpose: Verify DNS resolution works
 
 ### 2. Kubernetes API Check
 - Tests: Connection to API server, authentication
-- Timeout: 10 seconds
+- Timeout: Configurable (default: 10 seconds)
 - Purpose: Verify node can communicate with control plane
 
 ### 3. Network Connectivity
 - Tests: TCP connection to Kubernetes service
-- Timeout: 10 seconds
+- Timeout: Configurable (default: 10 seconds)
 - Purpose: Verify network routing works
 
 ### 4. Service Discovery
 - Tests: Query Kubernetes services and endpoints
-- Timeout: 5 seconds
+- Timeout: Configurable (default: 10 seconds)
 - Purpose: Verify service mesh works
 
 ## Monitoring
@@ -254,8 +257,9 @@ go run ./cmd/kube-node-ready --dry-run --log-level=debug --log-format=console
 ```
 
 **Dry-run mode:**
-- ✅ Performs all network verification checks
-- ✅ Works with local kubeconfig
+- ✅ Performs all network verification checks (DNS, network connectivity)
+- ✅ Works with local kubeconfig (if available)
+- ✅ Gracefully handles missing kubeconfig (skips K8s API checks only)
 - ❌ Does NOT modify node taints or labels
 - Perfect for development and testing
 
@@ -263,14 +267,31 @@ go run ./cmd/kube-node-ready --dry-run --log-level=debug --log-format=console
 ### Build
 
 ```bash
-# Build Go binary
-go build -o bin/kube-node-ready ./cmd/kube-node-ready
+# Build using Make (automatically includes version from git)
+make build
 
-# Build Docker image
-docker build -t kube-node-ready:dev .
+# Or build manually with version information
+go build -ldflags "-X main.version=1.0.0 -X main.commitHash=$(git rev-parse --short HEAD) -X main.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  -o bin/kube-node-ready ./cmd/kube-node-ready
 
-# Test locally with dry-run
-./bin/kube-node-ready --dry-run --log-format=console
+# Build Docker image with version information
+make docker-build VERSION=1.0.0
+
+# Or manually
+docker build \
+  --build-arg VERSION=1.0.0 \
+  --build-arg COMMIT_HASH=$(git rev-parse --short HEAD) \
+  --build-arg BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+  -t kube-node-ready:1.0.0 .
+
+# Test locally with dry-run (uses local kubeconfig if available)
+make dry-run
+# Or: ./bin/kube-node-ready --dry-run --log-format=console
+
+# Check version
+./bin/kube-node-ready --version
+
+# Test in production mode (requires in-cluster config or kubeconfig)
 export NODE_NAME=test-node
 export KUBERNETES_SERVICE_HOST=localhost
 export KUBERNETES_SERVICE_PORT=6443

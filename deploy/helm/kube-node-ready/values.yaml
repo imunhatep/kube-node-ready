@@ -33,6 +33,7 @@ securityContext:
 
 config:
   initialTimeout: "300s"
+  checkTimeout: "10s"
   maxRetries: 5
   retryBackoff: "exponential"
   dnsTestDomains:

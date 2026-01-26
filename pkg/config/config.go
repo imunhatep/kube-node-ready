@@ -16,6 +16,7 @@ type Config struct {
 	NodeName              string
 	Namespace             string
 	InitialCheckTimeout   time.Duration
+	CheckTimeout          time.Duration
 	MaxRetries            int
 	RetryBackoff          string
 	DNSTestDomains        []string
@@ -41,6 +42,7 @@ func LoadFromEnv() (*Config, error) {
 		NodeName:              getEnv("NODE_NAME", ""),
 		Namespace:             getEnv("POD_NAMESPACE", "kube-system"),
 		InitialCheckTimeout:   getDurationEnv("INITIAL_TIMEOUT", 300*time.Second),
+		CheckTimeout:          getDurationEnv("CHECK_TIMEOUT", 10*time.Second),
 		MaxRetries:            getIntEnv("MAX_RETRIES", 5),
 		RetryBackoff:          getEnv("RETRY_BACKOFF", "exponential"),
 		DNSTestDomains:        getSliceEnv("DNS_TEST_DOMAINS", []string{"kubernetes.default.svc.cluster.local", "google.com"}),

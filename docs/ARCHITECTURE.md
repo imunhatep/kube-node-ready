@@ -30,7 +30,7 @@
 │  │  │  │  │ 1. DNS Resolution Check                  │  │  │  │ │
 │  │  │  │  │    - kubernetes.default.svc.cluster.local│  │  │  │ │
 │  │  │  │  │    - External DNS (google.com)           │  │  │  │ │
-│  │  │  │  │    Timeout: 5s                            │  │  │  │ │
+│  │  │  │  │    Timeout: configurable (default 3s)    │  │  │  │ │
 │  │  │  │  └──────────────┬───────────────────────────┘  │  │  │ │
 │  │  │  │                 │ PASS                          │  │  │ │
 │  │  │  │                 ▼                               │  │  │ │
@@ -38,7 +38,7 @@
 │  │  │  │  │ 2. Kubernetes API Check                  │  │  │  │ │
 │  │  │  │  │    - Connect to API server               │  │  │  │ │
 │  │  │  │  │    - Verify authentication               │  │  │  │ │
-│  │  │  │  │    Timeout: 10s                           │  │  │  │ │
+│  │  │  │  │    Timeout: configurable (default 3s)    │  │  │  │ │
 │  │  │  │  └──────────────┬───────────────────────────┘  │  │  │ │
 │  │  │  │                 │ PASS                          │  │  │ │
 │  │  │  │                 ▼                               │  │  │ │
@@ -46,7 +46,7 @@
 │  │  │  │  │ 3. Cluster Network Check                 │  │  │  │ │
 │  │  │  │  │    - TCP to kubernetes service           │  │  │  │ │
 │  │  │  │  │    - Pod-to-pod connectivity             │  │  │  │ │
-│  │  │  │  │    Timeout: 10s                           │  │  │  │ │
+│  │  │  │  │    Timeout: configurable (default 3s)    │  │  │  │ │
 │  │  │  │  └──────────────┬───────────────────────────┘  │  │  │ │
 │  │  │  │                 │ PASS                          │  │  │ │
 │  │  │  │                 ▼                               │  │  │ │
@@ -54,7 +54,7 @@
 │  │  │  │  │ 4. Service Discovery Check               │  │  │  │ │
 │  │  │  │  │    - Query service endpoints             │  │  │  │ │
 │  │  │  │  │    - Verify kube-dns/CoreDNS             │  │  │  │ │
-│  │  │  │  │    Timeout: 5s                            │  │  │  │ │
+│  │  │  │  │    Timeout: configurable (default 3s)    │  │  │  │ │
 │  │  │  │  └──────────────┬───────────────────────────┘  │  │  │ │
 │  │  │  │                 │ ALL PASS                      │  │  │ │
 │  │  │  │                 ▼                               │  │  │ │

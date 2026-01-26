@@ -7,6 +7,7 @@ metadata:
     {{- include "kube-node-ready.labels" . | nindent 4 }}
 data:
   INITIAL_TIMEOUT: {{ .Values.config.initialTimeout | quote }}
+  CHECK_TIMEOUT: {{ .Values.config.checkTimeout | quote }}
   MAX_RETRIES: {{ .Values.config.maxRetries | quote }}
   RETRY_BACKOFF: {{ .Values.config.retryBackoff | quote }}
   DNS_TEST_DOMAINS: {{ join "," .Values.config.dnsTestDomains | quote }}

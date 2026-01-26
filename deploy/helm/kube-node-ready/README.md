@@ -50,6 +50,7 @@ The following table lists the configurable parameters and their default values.
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `config.initialTimeout` | Maximum time for verification | `"300s"` |
+| `config.checkTimeout` | Timeout for individual checks (DNS, network, K8s API) | `"10s"` |
 | `config.maxRetries` | Number of retry attempts | `5` |
 | `config.retryBackoff` | Backoff strategy (exponential/linear) | `"exponential"` |
 | `config.dnsTestDomains` | DNS domains to test | `[kubernetes.default.svc.cluster.local, google.com]` |

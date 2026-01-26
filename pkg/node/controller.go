@@ -14,22 +14,22 @@ import (
 	"github.com/imunhatep/kube-node-ready/pkg/config"
 )
 
-// Manager handles node operations
-type Manager struct {
+// Controller handles node operations
+type Controller struct {
 	config    *config.Config
 	clientset *kubernetes.Clientset
 }
 
-// NewManager creates a new node manager
-func NewManager(cfg *config.Config, clientset *kubernetes.Clientset) *Manager {
-	return &Manager{
+// NewController creates a new node manager
+func NewController(cfg *config.Config, clientset *kubernetes.Clientset) *Controller {
+	return &Controller{
 		config:    cfg,
 		clientset: clientset,
 	}
 }
 
 // RemoveTaintAndAddLabel removes the verification taint and adds the verified label
-func (m *Manager) RemoveTaintAndAddLabel(ctx context.Context) error {
+func (m *Controller) RemoveTaintAndAddLabel(ctx context.Context) error {
 	klog.InfoS("Updating node after successful verification",
 		"node", m.config.NodeName,
 		"taintKey", m.config.TaintKey,
@@ -93,7 +93,7 @@ func (m *Manager) RemoveTaintAndAddLabel(ctx context.Context) error {
 }
 
 // findTaintIndex finds the index of the verification taint
-func (m *Manager) findTaintIndex(taints []corev1.Taint) int {
+func (m *Controller) findTaintIndex(taints []corev1.Taint) int {
 	for i, taint := range taints {
 		if taint.Key == m.config.TaintKey {
 			return i

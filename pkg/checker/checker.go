@@ -23,14 +23,14 @@ type Checker struct {
 func NewChecker(cfg *config.Config, clientset *kubernetes.Clientset) *Checker {
 	var kubernetesChecker *KubernetesChecker
 	if clientset != nil {
-		kubernetesChecker = NewKubernetesChecker(clientset, 10*time.Second)
+		kubernetesChecker = NewKubernetesChecker(clientset, cfg.CheckTimeout)
 	}
 
 	return &Checker{
 		config:            cfg,
-		dnsChecker:        NewDNSChecker(5 * time.Second),
+		dnsChecker:        NewDNSChecker(cfg.CheckTimeout),
 		kubernetesChecker: kubernetesChecker,
-		networkChecker:    NewNetworkChecker(10 * time.Second),
+		networkChecker:    NewNetworkChecker(cfg.CheckTimeout),
 	}
 }
 
