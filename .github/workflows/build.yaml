@@ -42,11 +42,11 @@ jobs:
     - name: Run tests
       run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
 
-    - name: Upload coverage
-      uses: codecov/codecov-action@v4
-      with:
-        files: ./coverage.txt
-        flags: unittests
+#    - name: Upload coverage
+#      uses: codecov/codecov-action@v4
+#      with:
+#        files: ./coverage.txt
+#        flags: unittests
 
   lint:
     name: Lint
