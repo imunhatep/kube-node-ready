@@ -24,6 +24,7 @@ When new nodes join a Kubernetes cluster, they may have networking issues such a
 - ✅ **Retry logic** - Exponential backoff handles transient failures
 - ✅ **Label-based lifecycle** - Uses nodeAffinity to auto-remove pods
 - ✅ **Karpenter-ready** - Works seamlessly with node autoscaling
+- ✅ **Multi-architecture** - Supports both amd64 and arm64 (AWS Graviton, GCP Tau, Azure Ampere)
 - ✅ **Production-ready** - Security hardened, minimal permissions
 
 ## Quick Start

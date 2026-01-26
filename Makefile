@@ -84,10 +84,33 @@ docker-build:
 		-t $(REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG) \
 		.
 
+## docker-build-multiarch: Build multi-architecture Docker image (amd64, arm64)
+docker-build-multiarch:
+	@echo "Building multi-arch Docker image $(IMAGE_NAME):$(IMAGE_TAG) version $(VERSION)..."
+	docker buildx build \
+		--platform linux/amd64,linux/arm64 \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg COMMIT_HASH=$(COMMIT_HASH) \
+		--build-arg BUILD_DATE=$(BUILD_DATE) \
+		-t $(REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG) \
+		.
+
 ## docker-push: Push Docker image
 docker-push:
 	@echo "Pushing Docker image..."
 	docker push $(REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG)
+
+## docker-push-multiarch: Build and push multi-architecture Docker image
+docker-push-multiarch:
+	@echo "Building and pushing multi-arch Docker image $(IMAGE_NAME):$(IMAGE_TAG) version $(VERSION)..."
+	docker buildx build \
+		--platform linux/amd64,linux/arm64 \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg COMMIT_HASH=$(COMMIT_HASH) \
+		--build-arg BUILD_DATE=$(BUILD_DATE) \
+		-t $(REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG) \
+		--push \
+		.
 
 ## docker-run: Run Docker container locally
 docker-run:

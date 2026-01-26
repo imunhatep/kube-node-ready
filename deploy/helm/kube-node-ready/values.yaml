@@ -1,8 +1,10 @@
 # Default values for kube-node-ready
 
 image:
-  repository: kube-node-ready
-  tag: "0.1.0"
+  # Docker image repository
+  # Multi-arch image supporting: linux/amd64, linux/arm64
+  repository: ghcr.io/imunhatep/kube-node-ready
+  tag: "0.2.2"
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []
