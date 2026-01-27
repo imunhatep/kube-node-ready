@@ -1,10 +1,161 @@
 # Default values for kube-node-ready
 
-image:
+# Deployment mode: "controller" or "daemonset"
+# - controller: Controller manages worker pods dynamically (recommended for dynamic clusters)
+# - daemonset: DaemonSet runs on each node continuously (recommended for static clusters)
+deploymentMode: daemonset
+
+# Controller configuration (only used when deploymentMode: controller)
+controller:
+  enabled: false  # Set to true to deploy the controller component (auto-set by deploymentMode)
+  replicas: 1  # Set to 2+ for high availability
+
+  # High availability configuration
+  leaderElection:
+    enabled: true  # Enable leader election (required for replicas > 1)
+    leaseDuration: 15s  # Duration that non-leader candidates will wait to force acquire leadership
+    renewDeadline: 10s  # Duration the leader will retry refreshing leadership before giving up
+    retryPeriod: 2s     # Duration the LeaderElector clients should wait between tries of actions
+
+  image:
+    repository: ghcr.io/imunhatep/kube-node-ready
+    tag: "0.2.6"
+    pullPolicy: IfNotPresent
+
+  config:
+    # Worker Pod Configuration
+    worker:
+      image:
+        repository: ghcr.io/imunhatep/kube-node-ready
+        tag: "0.2.6"
+        pullPolicy: IfNotPresent
+      namespace: kube-system
+      timeoutSeconds: 300  # Timeout in seconds
+      serviceAccount: ""  # Optional: defaults to namespace default SA
+      priorityClassName: system-node-critical
+      resources:
+        requests:
+          cpu: "50m"
+          memory: "64Mi"
+        limits:
+          cpu: "100m"
+          memory: "128Mi"
+      # Worker runtime configuration (passed as env vars to worker pods)
+      checkTimeoutSeconds: 10  # Timeout for individual checks
+      dnsTestDomains:
+        - kubernetes.default.svc.cluster.local
+        - google.com
+      clusterDnsIp: ""  # Optional: cluster DNS IP
+    # Reconciliation Configuration
+    reconciliation:
+      intervalSeconds: 30  # Interval in seconds
+      maxRetries: 5
+      retryBackoff: exponential  # Options: exponential, linear
+
+    # Node Management Configuration
+    nodeManagement:
+      deleteFailedNodes: false  # DANGEROUS: Delete nodes that fail verification
+      taints:
+        - key: node-ready/unverified
+          value: "true"
+          effect: NoSchedule
+        # Add more taints as needed:
+        # - key: node-ready/network-unverified
+        #   value: "true"
+        #   effect: NoExecute
+      verifiedLabel:
+        key: node-ready/verified
+        value: "true"
+
+    # Metrics Configuration
+    metrics:
+      enabled: true
+      port: 8080
+
+      # Prometheus ServiceMonitor (requires Prometheus Operator)
+      serviceMonitor:
+        enabled: false  # Set to true to create ServiceMonitor
+        # namespace: monitoring  # Optional: namespace for ServiceMonitor (defaults to release namespace)
+        interval: 30s  # Scrape interval
+        scrapeTimeout: 10s  # Scrape timeout
+        labels: {}  # Additional labels for ServiceMonitor (e.g., for Prometheus selector)
+          # prometheus: kube-prometheus
+        annotations: {}  # Additional annotations
+        # relabelings: []  # Relabeling configs
+        # metricRelabelings: []  # Metric relabeling configs
+        # targetLabels: []  # Labels to transfer from service to metrics
+
+    # Health Configuration
+    health:
+      port: 8081
+
+    # Logging Configuration
+    logging:
+      level: info  # Options: debug, info, warn, error
+      format: json  # Options: json, console
+
+    # Kubernetes Client Configuration
+    kubernetes:
+      kubeconfigPath: ""  # Leave empty for in-cluster config
+      qps: 50
+      burst: 100
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+  serviceAccount:
+    create: true
+    annotations: {}
+    name: ""
+
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+  # Service configuration
+  service:
+    type: ClusterIP  # Service type for controller metrics/health endpoints
+
+# DaemonSet configuration (only used when deploymentMode: daemonset)
+daemonset:
+  enabled: false  # Auto-set by deploymentMode
+
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+
+  # DaemonSet will only run on nodes WITHOUT the verified label
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: node-ready/verified
+          operator: DoesNotExist
+
+  # Allow scheduling on tainted nodes
+  tolerations:
+    - effect: NoSchedule
+      key: node-ready/unverified
+      operator: Exists
+    - effect: NoSchedule
+      key: node.kubernetes.io/not-ready
+      operator: Exists
+    - effect: NoSchedule
+      key: node.kubernetes.io/unreachable
+      operator: Exists
+
+# Common image configuration (used by both modes)
   # Docker image repository
   # Multi-arch image supporting: linux/amd64, linux/arm64
   repository: ghcr.io/imunhatep/kube-node-ready
-  tag: "0.2.2"
+  tag: "0.2.6"
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []
@@ -47,6 +198,7 @@ config:
   taintEffect: "NoSchedule"
   verifiedLabel: "node-ready/verified"
   verifiedLabelValue: "true"
+  deleteFailedNode: false  # DANGEROUS: Delete nodes that fail verification (disabled by default)
   enableMetrics: true
   metricsPort: 8080
   logLevel: "info"
@@ -60,34 +212,10 @@ resources:
     cpu: 100m
     memory: 128Mi
 
-# DaemonSet will only run on nodes WITHOUT the verified label
-nodeAffinity:
-  requiredDuringSchedulingIgnoredDuringExecution:
-    nodeSelectorTerms:
-    - matchExpressions:
-      - key: node-ready/verified
-        operator: DoesNotExist
-
-# Allow scheduling on tainted nodes
-tolerations:
-  - effect: NoSchedule
-    key: node-ready/unverified
-    operator: Exists
-  - effect: NoSchedule
-    key: node.kubernetes.io/not-ready
-    operator: Exists
-  - effect: NoSchedule
-    key: node.kubernetes.io/unreachable
-    operator: Exists
-
 nodeSelector: {}
 
 priorityClassName: "system-node-critical"
 
-updateStrategy:
-  type: RollingUpdate
-  rollingUpdate:
-    maxUnavailable: 1
 
 # Metrics configuration
 metrics:

@@ -1,0 +1,46 @@
+{{- if eq .Values.deploymentMode "controller" }}
+✓ kube-node-ready deployed in CONTROLLER mode
+
+  The controller will dynamically create worker pods on new nodes.
+
+  To check controller status:
+    kubectl get deployment {{ include "kube-node-ready.fullname" . }}-controller -n {{ .Release.Namespace }}
+
+  To view controller logs:
+    kubectl logs -l app.kubernetes.io/component=controller -n {{ .Release.Namespace }} -f
+
+  To view worker pods:
+    kubectl get pods -l app.kubernetes.io/component=worker -n {{ .Values.controller.config.worker.namespace }}
+
+{{- else if eq .Values.deploymentMode "daemonset" }}
+✓ kube-node-ready deployed in DAEMONSET mode
+
+  The daemonset runs continuously on each unverified node.
+
+  To check daemonset status:
+    kubectl get daemonset {{ include "kube-node-ready.fullname" . }} -n {{ .Release.Namespace }}
+
+  To view daemonset pods:
+    kubectl get pods -l app.kubernetes.io/component=daemonset -n {{ .Release.Namespace }}
+
+  To view logs:
+    kubectl logs -l app.kubernetes.io/component=daemonset -n {{ .Release.Namespace }} -f
+
+{{- else }}
+⚠ Unknown deployment mode: {{ .Values.deploymentMode }}
+  Valid options: "controller" or "daemonset"
+{{- end }}
+
+Configuration:
+{{- if eq .Values.deploymentMode "controller" }}
+  - Worker namespace: {{ .Values.controller.config.worker.namespace }}
+  - Reconcile interval: {{ .Values.controller.config.reconciliation.intervalSeconds }}s
+  - Max retries: {{ .Values.controller.config.reconciliation.maxRetries }}
+  - Verified label: {{ .Values.controller.config.nodeManagement.verifiedLabel.key }}
+{{- else }}
+  - Verified label: {{ .Values.config.verifiedLabel }}
+  - Taint key: {{ .Values.config.taintKey }}
+{{- end }}
+
+To switch deployment modes:
+  helm upgrade {{ .Release.Name }} {{ .Chart.Name }} --set deploymentMode=<controller|daemonset>

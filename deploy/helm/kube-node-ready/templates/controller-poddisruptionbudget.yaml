@@ -1,0 +1,16 @@
+{{- if and (or (eq .Values.deploymentMode "controller") .Values.controller.enabled) (gt (int .Values.controller.replicas) 1) }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "kube-node-ready.fullname" . }}-controller
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kube-node-ready.labels" . | nindent 4 }}
+    app.kubernetes.io/component: controller
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "kube-node-ready.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: controller
+{{- end }}

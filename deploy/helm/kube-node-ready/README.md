@@ -1,20 +1,45 @@
 # kube-node-ready Helm Chart
 
-Helm chart for deploying kube-node-ready, a Kubernetes node network verification DaemonSet.
+Helm chart for deploying kube-node-ready, a Kubernetes node network verification system.
+
+## Deployment Modes
+
+This chart supports **two deployment modes**:
+
+| Mode | Description | Use Case |
+|------|-------------|----------|
+| **`daemonset`** (default) | DaemonSet runs continuously on each unverified node | Static clusters, continuous monitoring |
+| **`controller`** | Controller creates worker pods on-demand | Dynamic clusters with autoscaling (Karpenter, etc.) |
+
+**Quick Mode Selection:**
+```bash
+# DaemonSet mode (default)
+helm install kube-node-ready ./deploy/helm/kube-node-ready \
+  --namespace kube-system
+
+# Controller mode
+helm install kube-node-ready ./deploy/helm/kube-node-ready \
+  --namespace kube-system \
+  --set deploymentMode=controller
+```
+
+See [Deployment Modes Guide](../../../docs/HELM_DEPLOYMENT_MODES.md) for detailed comparison.
 
 ## Installation
 
-### Add Repository (if published)
-```bash
-helm repo add kube-node-ready https://your-repo-url
-helm repo update
-```
-
-### Install from Local Chart
+### Install DaemonSet Mode (Default)
 ```bash
 helm install kube-node-ready ./deploy/helm/kube-node-ready \
   --namespace kube-system \
   --create-namespace
+```
+
+### Install Controller Mode
+```bash
+helm install kube-node-ready ./deploy/helm/kube-node-ready \
+  --namespace kube-system \
+  --create-namespace \
+  --set deploymentMode=controller
 ```
 
 ### Install with Custom Values
@@ -24,11 +49,57 @@ helm install kube-node-ready ./deploy/helm/kube-node-ready \
   --values custom-values.yaml
 ```
 
+## Monitoring
+
+### Prometheus Metrics
+
+The controller exposes Prometheus metrics on port `8080` at `/metrics` endpoint.
+
+**25+ metrics available:**
+- Reconciliation metrics (rate, duration, errors)
+- Worker pod metrics (created, succeeded, failed, duration)
+- Node state metrics (unverified, verifying, verified, failed)
+- Leader election metrics
+- Queue and performance metrics
+
+See [PROMETHEUS_METRICS.md](../../../docs/PROMETHEUS_METRICS.md) for complete metric reference.
+
+### ServiceMonitor (Prometheus Operator)
+
+Enable automatic metrics discovery with Prometheus Operator:
+
+```bash
+helm install kube-node-ready ./deploy/helm/kube-node-ready \
+  --namespace kube-system \
+  --set deploymentMode=controller \
+  --set controller.metrics.serviceMonitor.enabled=true \
+  --set controller.metrics.serviceMonitor.labels.prometheus=kube-prometheus
+```
+
+**Configuration:**
+```yaml
+controller:
+  metrics:
+    serviceMonitor:
+      enabled: true
+      namespace: monitoring  # Optional: deploy to monitoring namespace
+      interval: 30s
+      scrapeTimeout: 10s
+      labels:
+        prometheus: kube-prometheus  # Match Prometheus selector
+```
+
+See [SERVICEMONITOR.md](../../../docs/SERVICEMONITOR.md) for detailed configuration.
+
 ## Configuration
 
-The following table lists the configurable parameters and their default values.
+### Deployment Mode Selection
 
-### Image Configuration
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `deploymentMode` | Deployment mode: `daemonset` or `controller` | `daemonset` |
+
+### Common Configuration
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
@@ -36,6 +107,67 @@ The following table lists the configurable parameters and their default values.
 | `image.tag` | Container image tag | `0.1.0` |
 | `image.pullPolicy` | Image pull policy | `IfNotPresent` |
 | `imagePullSecrets` | Image pull secrets | `[]` |
+
+### Controller Configuration (Optional)
+
+Enable with `controller.enabled=true` to deploy the controller component.
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `controller.enabled` | Enable controller deployment | `false` |
+| `controller.replicas` | Number of controller replicas | `1` |
+| `controller.image.repository` | Controller image repository | `ghcr.io/imunhatep/kube-node-ready` |
+| `controller.image.tag` | Controller image tag | `0.2.6` |
+| `controller.image.pullPolicy` | Image pull policy | `IfNotPresent` |
+
+#### Controller Configuration File
+
+The controller reads configuration from a ConfigMap mounted as `/etc/kube-node-ready/config.yaml`:
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `controller.config.workerImage` | Image for worker pods | `ghcr.io/imunhatep/kube-node-ready:0.2.6` |
+| `controller.config.workerNamespace` | Namespace for worker pods | `kube-system` |
+| `controller.config.workerTimeout` | Worker pod timeout | `"300s"` |
+| `controller.config.maxRetries` | Retry attempts for failed nodes | `5` |
+| `controller.config.retryBackoff` | Backoff strategy (exponential/linear) | `"exponential"` |
+| `controller.config.reconcileInterval` | Reconciliation loop interval | `"30s"` |
+| `controller.config.deleteFailedNodes` | Delete nodes that fail verification (⚠️ DANGEROUS) | `false` |
+| `controller.config.taintKey` | Taint key for unverified nodes | `"node-ready/unverified"` |
+| `controller.config.taintValue` | Taint value | `"true"` |
+| `controller.config.taintEffect` | Taint effect | `"NoSchedule"` |
+| `controller.config.verifiedLabel` | Label for verified nodes | `"node-ready/verified"` |
+| `controller.config.verifiedLabelValue` | Label value | `"true"` |
+| `controller.config.metricsEnabled` | Enable metrics endpoint | `true` |
+| `controller.config.metricsPort` | Metrics port | `8080` |
+| `controller.config.healthPort` | Health check port | `8081` |
+| `controller.config.logLevel` | Log level (debug/info/warn/error) | `"info"` |
+| `controller.config.logFormat` | Log format (json/console) | `"json"` |
+| `controller.config.kubeconfigPath` | Kubeconfig path (empty for in-cluster) | `""` |
+
+#### Controller Resources and Scheduling
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `controller.resources.requests.cpu` | CPU request | `50m` |
+| `controller.resources.requests.memory` | Memory request | `64Mi` |
+| `controller.resources.limits.cpu` | CPU limit | `200m` |
+| `controller.resources.limits.memory` | Memory limit | `128Mi` |
+| `controller.serviceAccount.create` | Create service account | `true` |
+| `controller.serviceAccount.annotations` | Service account annotations | `{}` |
+| `controller.serviceAccount.name` | Service account name | `""` (auto-generated) |
+| `controller.podAnnotations` | Pod annotations | `{}` |
+| `controller.nodeSelector` | Node selector | `{}` |
+| `controller.tolerations` | Pod tolerations | `[]` |
+| `controller.affinity` | Pod affinity rules | `{}` |
+
+#### Controller Service
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `controller.service.type` | Service type | `ClusterIP` |
+| `controller.service.metricsPort` | Metrics port | `8080` |
+| `controller.service.healthPort` | Health check port | `8081` |
 
 ### Service Account
 
@@ -109,6 +241,28 @@ The following table lists the configurable parameters and their default values.
 | `podAnnotations` | Pod annotations | `{}` |
 
 ## Examples
+
+### Deploy with Controller
+
+Enable the controller component for centralized node management:
+
+```yaml
+controller:
+  enabled: true
+  config:
+    workerImage: "ghcr.io/imunhatep/kube-node-ready:0.2.6"
+    maxRetries: 5
+    reconcileInterval: "30s"
+    logLevel: "info"
+```
+
+Install with controller:
+
+```bash
+helm install kube-node-ready ./deploy/helm/kube-node-ready \
+  --namespace kube-system \
+  --set controller.enabled=true
+```
 
 ### Custom DNS Tests
 ```yaml

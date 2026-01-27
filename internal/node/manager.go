@@ -17,21 +17,21 @@ import (
 )
 
 // Controller handles node operations
-type Controller struct {
+type Manager struct {
 	config    *config.Config
 	clientset *kubernetes.Clientset
 }
 
 // NewController creates a new node manager
-func NewController(cfg *config.Config, clientset *kubernetes.Clientset) *Controller {
-	return &Controller{
+func NewManager(cfg *config.Config, clientset *kubernetes.Clientset) *Manager {
+	return &Manager{
 		config:    cfg,
 		clientset: clientset,
 	}
 }
 
 // RemoveTaintAndAddLabel removes the verification taint and adds the verified label
-func (m *Controller) RemoveTaintAndAddLabel(ctx context.Context) error {
+func (m *Manager) RemoveTaintAndAddLabel(ctx context.Context) error {
 	klog.InfoS("Updating node after successful verification",
 		"node", m.config.NodeName,
 		"taintKey", m.config.TaintKey,
@@ -126,7 +126,7 @@ func (m *Controller) RemoveTaintAndAddLabel(ctx context.Context) error {
 }
 
 // findTaintIndex finds the index of the verification taint
-func (m *Controller) findTaintIndex(taints []corev1.Taint) int {
+func (m *Manager) findTaintIndex(taints []corev1.Taint) int {
 	for i, taint := range taints {
 		if taint.Key == m.config.TaintKey {
 			return i
@@ -157,4 +157,36 @@ func escapeLabelKey(key string) string {
 		}
 	}
 	return result
+}
+
+// DeleteNode deletes the node from the cluster
+func (m *Manager) DeleteNode(ctx context.Context) error {
+	klog.InfoS("Deleting failed node",
+		"node", m.config.NodeName,
+	)
+
+	start := time.Now()
+	err := m.clientset.CoreV1().Nodes().Delete(
+		ctx,
+		m.config.NodeName,
+		metav1.DeleteOptions{},
+	)
+	duration := time.Since(start)
+
+	if err != nil {
+		metrics.NodeDeletionTotal.WithLabelValues(m.config.NodeName, "failure").Inc()
+		klog.ErrorS(err, "Failed to delete node",
+			"node", m.config.NodeName,
+			"duration", duration,
+		)
+		return fmt.Errorf("failed to delete node: %w", err)
+	}
+
+	metrics.NodeDeletionTotal.WithLabelValues(m.config.NodeName, "success").Inc()
+	klog.InfoS("Successfully deleted node",
+		"node", m.config.NodeName,
+		"duration", duration,
+	)
+
+	return nil
 }

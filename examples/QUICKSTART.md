@@ -264,6 +264,59 @@ kubectl label nodes --all node-ready/verified-
 - Set up alerts for failed verifications
 - Integrate with your CI/CD pipeline
 
+## Local Development and Testing
+
+### Running the Controller Locally
+
+For development and testing, you can run the controller locally against your Kubernetes cluster:
+
+```bash
+# Build the controller binary
+make build-controller
+
+# Run the controller with default config
+./examples/run-controller-local.sh
+
+# Or with a custom config file
+CONFIG_FILE=/path/to/my-config.yaml ./examples/run-controller-local.sh
+
+# Disable leader election for local testing (already default)
+LEADER_ELECT=false ./examples/run-controller-local.sh
+```
+
+The script will:
+1. Check if the config file exists (default: `./examples/controller-config.yaml`)
+2. Verify the binary exists and is executable
+3. Check kubectl connectivity
+4. Verify RBAC permissions for the controller
+5. Start the controller with proper flags
+
+**Configuration**: Edit `examples/controller-config.yaml` to customize:
+- Worker image and namespace
+- Reconciliation interval and retries
+- Node taints and labels
+- Metrics and logging settings
+
+### Running the Worker Locally
+
+To test worker functionality independently:
+
+```bash
+# Build the worker binary
+make build-worker
+
+# Run the worker against a specific node
+NODE_NAME=my-node ./examples/run-worker-local.sh
+```
+
+### Prerequisites for Local Running
+
+- Go 1.25+
+- Access to a Kubernetes cluster
+- kubectl configured with admin permissions
+- Controller needs: list/watch/patch nodes, create/delete pods
+- Worker needs: access to update node labels/taints
+
 ## Getting Help
 
 - Check logs: `kubectl logs -n kube-system -l app.kubernetes.io/name=kube-node-ready`

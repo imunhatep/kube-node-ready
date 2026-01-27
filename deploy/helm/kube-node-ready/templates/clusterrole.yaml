@@ -5,10 +5,10 @@ metadata:
   labels:
     {{- include "kube-node-ready.labels" . | nindent 4 }}
 rules:
-  # Node operations: get info, remove taint, add label
+  # Node operations: get info, remove taint, add label, delete (if enabled)
   - apiGroups: [""]
     resources: ["nodes"]
-    verbs: ["get", "list", "patch"]
+    verbs: ["get", "list", "patch", "delete"]
 
   # Service discovery
   - apiGroups: [""]

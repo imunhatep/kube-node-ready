@@ -19,6 +19,7 @@ data:
   TAINT_EFFECT: {{ .Values.config.taintEffect | quote }}
   VERIFIED_LABEL: {{ .Values.config.verifiedLabel | quote }}
   VERIFIED_LABEL_VALUE: {{ .Values.config.verifiedLabelValue | quote }}
+  DELETE_FAILED_NODE: {{ .Values.config.deleteFailedNode | quote }}
   ENABLE_METRICS: {{ .Values.config.enableMetrics | quote }}
   METRICS_PORT: {{ .Values.config.metricsPort | quote }}
   LOG_LEVEL: {{ .Values.config.logLevel | quote }}

@@ -1,0 +1,100 @@
+# Kube Node Ready Controller Configuration
+# This file demonstrates the structured YAML configuration format
+
+# Worker Pod Configuration
+worker:
+  # Container image configuration
+  image:
+    repository: ghcr.io/imunhatep/kube-node-ready
+    tag: "0.2.6"
+    pullPolicy: IfNotPresent  # Options: Always, IfNotPresent, Never
+
+  # Kubernetes settings
+  namespace: kube-system
+  timeoutSeconds: 300  # Maximum time to wait for worker pod completion (in seconds)
+
+  # Optional: Service account for worker pods (defaults to namespace default)
+  serviceAccount: ""
+
+  # Priority class for worker pods
+  priorityClassName: system-node-critical
+
+  # Resource requests and limits for worker pods
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "64Mi"
+    limits:
+      cpu: "100m"
+      memory: "128Mi"
+
+  # Worker runtime configuration (passed as environment variables to worker pods)
+  checkTimeoutSeconds: 10  # Timeout for individual checks (DNS, network, K8s API)
+  dnsTestDomains:
+    - kubernetes.default.svc.cluster.local
+    - google.com
+  clusterDnsIp: ""  # Optional: cluster DNS IP address
+
+# Reconciliation Configuration
+reconciliation:
+  # How often to check and reconcile node states (in seconds)
+  intervalSeconds: 30
+
+  # Maximum number of retry attempts for failed verifications
+  maxRetries: 5
+
+  # Retry backoff strategy: "exponential" or "linear"
+  retryBackoff: exponential
+
+# Node Management Configuration
+nodeManagement:
+  # DANGEROUS: Automatically delete nodes that fail verification
+  # Only enable if you understand the implications
+  deleteFailedNodes: false
+
+  # Taints to apply/remove on nodes
+  # Multiple taints can be defined (follows Kubernetes taint format)
+  taints:
+    - key: node-ready/unverified
+      value: "true"
+      effect: NoSchedule  # Options: NoSchedule, PreferNoSchedule, NoExecute
+
+    # Additional taints can be added:
+    # - key: node-ready/network-unverified
+    #   value: "true"
+    #   effect: NoExecute
+
+  # Label to apply on successfully verified nodes
+  verifiedLabel:
+    key: node-ready/verified
+    value: "true"
+
+# Metrics Configuration
+metrics:
+  # Enable Prometheus metrics endpoint
+  enabled: true
+
+  # Port for metrics server
+  port: 8080
+
+# Health Check Configuration
+health:
+  # Port for health check endpoints (/healthz, /readyz)
+  port: 8081
+
+# Logging Configuration
+logging:
+  # Log level: debug, info, warn, error
+  level: info
+
+  # Log format: json, console
+  format: json
+
+# Kubernetes Client Configuration
+kubernetes:
+  # Path to kubeconfig file (leave empty for in-cluster config)
+  kubeconfigPath: ""
+
+  # Rate limiting for Kubernetes API calls
+  qps: 50      # Queries per second
+  burst: 100   # Burst capacity

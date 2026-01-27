@@ -1,0 +1,82 @@
+{{- if or (eq .Values.deploymentMode "controller") .Values.controller.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kube-node-ready.fullname" . }}-controller
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kube-node-ready.labels" . | nindent 4 }}
+    app.kubernetes.io/component: controller
+data:
+  config.yaml: |
+    # Worker Pod Configuration
+    worker:
+      image:
+        repository: {{ .Values.controller.config.worker.image.repository }}
+        tag: {{ .Values.controller.config.worker.image.tag | quote }}
+        pullPolicy: {{ .Values.controller.config.worker.image.pullPolicy }}
+      namespace: {{ .Values.controller.config.worker.namespace }}
+      timeoutSeconds: {{ .Values.controller.config.worker.timeoutSeconds }}
+      {{- if .Values.controller.config.worker.serviceAccount }}
+      serviceAccount: {{ .Values.controller.config.worker.serviceAccount | quote }}
+      {{- end }}
+      priorityClassName: {{ .Values.controller.config.worker.priorityClassName | quote }}
+      resources:
+        requests:
+          cpu: {{ .Values.controller.config.worker.resources.requests.cpu | quote }}
+          memory: {{ .Values.controller.config.worker.resources.requests.memory | quote }}
+        limits:
+          cpu: {{ .Values.controller.config.worker.resources.limits.cpu | quote }}
+          memory: {{ .Values.controller.config.worker.resources.limits.memory | quote }}
+      checkTimeoutSeconds: {{ .Values.controller.config.worker.checkTimeoutSeconds }}
+      dnsTestDomains:
+      {{- range .Values.controller.config.worker.dnsTestDomains }}
+        - {{ . | quote }}
+      {{- end }}
+      {{- if .Values.controller.config.worker.clusterDnsIp }}
+      clusterDnsIp: {{ .Values.controller.config.worker.clusterDnsIp | quote }}
+      {{- end }}
+
+    # Reconciliation Configuration
+    reconciliation:
+      intervalSeconds: {{ .Values.controller.config.reconciliation.intervalSeconds }}
+      maxRetries: {{ .Values.controller.config.reconciliation.maxRetries }}
+      retryBackoff: {{ .Values.controller.config.reconciliation.retryBackoff | quote }}
+
+    # Node Management Configuration
+    nodeManagement:
+      deleteFailedNodes: {{ .Values.controller.config.nodeManagement.deleteFailedNodes }}
+      taints:
+      {{- range .Values.controller.config.nodeManagement.taints }}
+        - key: {{ .key | quote }}
+          value: {{ .value | quote }}
+          effect: {{ .effect | quote }}
+      {{- end }}
+      verifiedLabel:
+        key: {{ .Values.controller.config.nodeManagement.verifiedLabel.key | quote }}
+        value: {{ .Values.controller.config.nodeManagement.verifiedLabel.value | quote }}
+
+    # Metrics Configuration
+    metrics:
+      enabled: {{ .Values.controller.config.metrics.enabled }}
+      port: {{ .Values.controller.config.metrics.port }}
+
+    # Health Configuration
+    health:
+      port: {{ .Values.controller.config.health.port }}
+
+    # Logging Configuration
+    logging:
+      level: {{ .Values.controller.config.logging.level | quote }}
+      format: {{ .Values.controller.config.logging.format | quote }}
+
+    # Kubernetes Client Configuration
+    kubernetes:
+      {{- if .Values.controller.config.kubernetes.kubeconfigPath }}
+      kubeconfigPath: {{ .Values.controller.config.kubernetes.kubeconfigPath | quote }}
+      {{- else }}
+      kubeconfigPath: ""
+      {{- end }}
+      qps: {{ .Values.controller.config.kubernetes.qps }}
+      burst: {{ .Values.controller.config.kubernetes.burst }}
+{{- end }}

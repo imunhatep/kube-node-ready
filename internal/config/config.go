@@ -34,6 +34,7 @@ type Config struct {
 	LogFormat             string
 	DryRun                bool
 	KubeconfigPath        string
+	DeleteFailedNode      bool
 }
 
 // LoadFromEnv loads configuration from environment variables
@@ -60,6 +61,7 @@ func LoadFromEnv() (*Config, error) {
 		LogFormat:             getEnv("LOG_FORMAT", "json"),
 		DryRun:                getBoolEnv("DRY_RUN", false),
 		KubeconfigPath:        getEnv("KUBECONFIG", ""),
+		DeleteFailedNode:      getBoolEnv("DELETE_FAILED_NODE", false),
 	}
 
 	return cfg, nil

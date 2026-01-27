@@ -179,6 +179,14 @@ func main() {
 				Usage:   "Path to kubeconfig file (for out-of-cluster usage)",
 				Sources: cli.EnvVars("KUBECONFIG"),
 			},
+
+			// Node deletion
+			&cli.BoolFlag{
+				Name:    "delete-failed-node",
+				Usage:   "Delete node if all verification checks fail (DANGEROUS - disabled by default)",
+				Value:   false,
+				Sources: cli.EnvVars("DELETE_FAILED_NODE"),
+			},
 		},
 		Action: run,
 	}
@@ -228,6 +236,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		LogFormat:             cmd.String("log-format"),
 		DryRun:                cmd.Bool("dry-run"),
 		KubeconfigPath:        cmd.String("kubeconfig"),
+		DeleteFailedNode:      cmd.Bool("delete-failed-node"),
 	}
 
 	// Validate configuration
@@ -297,6 +306,21 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	klog.Info("Starting verification checks")
 	if err := chk.RunWithRetry(runCtx); err != nil {
 		klog.ErrorS(err, "Verification failed")
+
+		// Delete node if configured and not in dry-run mode
+		if cfg.DeleteFailedNode && !cfg.DryRun && clientset != nil {
+			klog.InfoS("DeleteFailedNode is enabled, deleting node", "node", cfg.NodeName)
+			nodeManager := node.NewManager(cfg, clientset)
+			if deleteErr := nodeManager.DeleteNode(context.Background()); deleteErr != nil {
+				klog.ErrorS(deleteErr, "Failed to delete node after verification failure")
+				return fmt.Errorf("verification failed and node deletion failed: %w (original error: %v)", deleteErr, err)
+			}
+			klog.InfoS("Node deleted successfully", "node", cfg.NodeName)
+			return fmt.Errorf("verification failed, node deleted: %w", err)
+		} else if cfg.DeleteFailedNode && cfg.DryRun {
+			klog.Info("Dry-run mode: would delete node due to verification failure")
+		}
+
 		return fmt.Errorf("verification failed: %w", err)
 	}
 
@@ -310,7 +334,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		klog.Info("No Kubernetes client available: skipping node updates")
 	} else {
 		klog.Info("Updating node status")
-		nodeManager := node.NewController(cfg, clientset)
+		nodeManager := node.NewManager(cfg, clientset)
 		if err := nodeManager.RemoveTaintAndAddLabel(context.Background()); err != nil {
 			klog.ErrorS(err, "Failed to update node")
 			return fmt.Errorf("failed to update node: %w", err)

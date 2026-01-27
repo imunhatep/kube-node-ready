@@ -2,6 +2,8 @@
 
 # Variables
 BINARY_NAME=kube-node-ready
+BINARY_NAME_CONTROLLER=kube-node-ready-controller
+BINARY_NAME_WORKER=kube-node-ready-worker
 IMAGE_NAME=kube-node-ready
 IMAGE_TAG?=latest
 REGISTRY?=docker.io
@@ -34,6 +36,21 @@ build:
 	@echo "Building $(BINARY_NAME) version $(VERSION)..."
 	mkdir -p bin/
 	$(GOBUILD) $(LDFLAGS) -o bin/$(BINARY_NAME) -v ./cmd/kube-node-ready
+
+## build-worker: Build the worker binary
+build-worker:
+	@echo "Building $(BINARY_NAME_WORKER) version $(VERSION)..."
+	mkdir -p bin/
+	$(GOBUILD) $(LDFLAGS) -o bin/$(BINARY_NAME_WORKER) -v ./cmd/kube-node-ready-worker
+
+## build-controller: Build the controller binary
+build-controller:
+	@echo "Building $(BINARY_NAME_CONTROLLER) version $(VERSION)..."
+	mkdir -p bin/
+	$(GOBUILD) $(LDFLAGS) -o bin/$(BINARY_NAME_CONTROLLER) -v ./cmd/kube-node-ready-controller
+
+## build-all: Build all binaries (legacy, worker, and controller)
+build-all: build build-worker build-controller
 
 ## clean: Clean build artifacts
 clean:

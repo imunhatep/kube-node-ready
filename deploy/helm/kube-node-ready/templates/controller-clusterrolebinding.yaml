@@ -1,0 +1,17 @@
+{{- if or (eq .Values.deploymentMode "controller") .Values.controller.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "kube-node-ready.fullname" . }}-controller
+  labels:
+    {{- include "kube-node-ready.labels" . | nindent 4 }}
+    app.kubernetes.io/component: controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "kube-node-ready.fullname" . }}-controller
+subjects:
+- kind: ServiceAccount
+  name: {{ include "kube-node-ready.controllerServiceAccountName" . }}
+  namespace: {{ .Release.Namespace }}
+{{- end }}
