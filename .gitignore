@@ -26,6 +26,7 @@ go.work
 *.swp
 *.swo
 *~
+.github/*.md
 
 # OS
 .DS_Store
