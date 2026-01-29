@@ -29,7 +29,9 @@ controller:
         repository: ghcr.io/imunhatep/kube-node-ready
         tag: "0.2.6"
         pullPolicy: IfNotPresent
-      namespace: kube-system
+      # Note: namespace is auto-detected from controller's environment
+      # Uncomment to override (defaults to controller's namespace)
+      # namespace: kube-system
       timeoutSeconds: 300  # Timeout in seconds
       serviceAccount: ""  # Optional: defaults to namespace default SA
       priorityClassName: system-node-critical
@@ -38,14 +40,8 @@ controller:
           cpu: "50m"
           memory: "64Mi"
         limits:
-          cpu: "100m"
-          memory: "128Mi"
-      # Worker runtime configuration (passed as env vars to worker pods)
-      checkTimeoutSeconds: 10  # Timeout for individual checks
-      dnsTestDomains:
-        - kubernetes.default.svc.cluster.local
-        - google.com
-      clusterDnsIp: ""  # Optional: cluster DNS IP
+          cpu: "100m"  # Optional: can be omitted in loaded clusters to avoid throttling
+          memory: "128Mi"  # Optional: recommended to prevent OOM issues
     # Reconciliation Configuration
     reconciliation:
       intervalSeconds: 30  # Interval in seconds
@@ -105,8 +101,8 @@ controller:
       cpu: 50m
       memory: 64Mi
     limits:
-      cpu: 200m
-      memory: 128Mi
+      cpu: 200m  # Optional: can be omitted to avoid throttling
+      memory: 128Mi  # Optional: recommended to prevent OOM issues
 
   serviceAccount:
     create: true
@@ -121,6 +117,26 @@ controller:
   # Service configuration
   service:
     type: ClusterIP  # Service type for controller metrics/health endpoints
+
+# Worker configuration (used by controller mode)
+# This configuration is mounted into worker pods via ConfigMap
+worker:
+  config:
+    # Check timeout for individual checks (DNS, network, K8s API)
+    checkTimeoutSeconds: 10
+
+    # DNS domains to test during node verification
+    dnsTestDomains:
+      - kubernetes.default.svc.cluster.local
+      - google.com
+
+    # Optional: cluster DNS IP address
+    clusterDnsIp: ""
+
+    # Logging configuration for worker pods
+    logging:
+      level: info  # Options: debug, info, warn, error
+      format: json  # Options: json, console
 
 # DaemonSet configuration (only used when deploymentMode: daemonset)
 daemonset:
@@ -209,8 +225,8 @@ resources:
     cpu: 50m
     memory: 64Mi
   limits:
-    cpu: 100m
-    memory: 128Mi
+    cpu: 100m  # Optional: can be omitted in loaded clusters to avoid throttling
+    memory: 128Mi  # Optional: recommended to prevent OOM issues
 
 nodeSelector: {}
 

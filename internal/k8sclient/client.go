@@ -45,8 +45,7 @@ func createClientForDryRun(cfg *config.Config) (*kubernetes.Clientset, error) {
 
 	// Check if kubeconfig exists
 	if _, err := os.Stat(kubeconfigPath); os.IsNotExist(err) {
-		klog.InfoS("Dry-run mode: kubeconfig not found, running network checks only",
-			"kubeconfigPath", kubeconfigPath)
+		klog.InfoS("Dry-run mode: kubeconfig not found, running network checks only", "kubeconfigPath", kubeconfigPath)
 		klog.Info("Kubernetes API checks will be skipped")
 		return nil, nil
 	}
@@ -54,9 +53,7 @@ func createClientForDryRun(cfg *config.Config) (*kubernetes.Clientset, error) {
 	// Try to create client
 	clientset, err := createClientFromKubeconfig(kubeconfigPath)
 	if err != nil {
-		klog.InfoS("Dry-run mode: failed to create Kubernetes client",
-			"error", err,
-			"kubeconfigPath", kubeconfigPath)
+		klog.InfoS("Dry-run mode: failed to create Kubernetes client", "error", err, "kubeconfigPath", kubeconfigPath)
 		klog.Info("Continuing with network checks only")
 		return nil, nil
 	}

@@ -47,11 +47,31 @@ func run() int {
 		"buildDate", buildDate,
 	)
 
-	// Load configuration
-	cfg, err := config.LoadWorkerConfigFromEnv()
-	if err != nil {
-		klog.ErrorS(err, "Failed to load configuration")
-		return ExitConfigError
+	// Configuration can come from file (ConfigMap mount) or environment variables
+	configPath := os.Getenv("WORKER_CONFIG_PATH")
+	if configPath == "" {
+		configPath = "/etc/kube-node-ready/worker-config.yaml"
+	}
+
+	var cfg *config.WorkerConfig
+	var err error
+
+	// Try to load from file first (ConfigMap mount)
+	if _, statErr := os.Stat(configPath); statErr == nil {
+		klog.InfoS("Loading worker configuration from file", "path", configPath)
+		cfg, err = config.LoadWorkerConfigFromFile(configPath)
+		if err != nil {
+			klog.ErrorS(err, "Failed to load configuration from file")
+			return ExitConfigError
+		}
+	} else {
+		// Fallback to environment variables (for backward compatibility)
+		klog.InfoS("Configuration file not found, loading from environment variables", "path", configPath)
+		cfg, err = config.LoadWorkerConfigFromEnv()
+		if err != nil {
+			klog.ErrorS(err, "Failed to load configuration from environment")
+			return ExitConfigError
+		}
 	}
 
 	// Validate configuration

@@ -28,14 +28,7 @@ data:
         limits:
           cpu: {{ .Values.controller.config.worker.resources.limits.cpu | quote }}
           memory: {{ .Values.controller.config.worker.resources.limits.memory | quote }}
-      checkTimeoutSeconds: {{ .Values.controller.config.worker.checkTimeoutSeconds }}
-      dnsTestDomains:
-      {{- range .Values.controller.config.worker.dnsTestDomains }}
-        - {{ . | quote }}
-      {{- end }}
-      {{- if .Values.controller.config.worker.clusterDnsIp }}
-      clusterDnsIp: {{ .Values.controller.config.worker.clusterDnsIp | quote }}
-      {{- end }}
+      configMapName: {{ include "kube-node-ready.fullname" . }}-worker
 
     # Reconciliation Configuration
     reconciliation:

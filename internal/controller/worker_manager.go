@@ -3,7 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
-	"strings"
+	"os"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -16,28 +16,64 @@ import (
 	"github.com/imunhatep/kube-node-ready/internal/config"
 )
 
+const (
+	// Default path to namespace file in Kubernetes service account
+	namespaceFile = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
+)
+
 // WorkerManager manages the lifecycle of worker pods
 type WorkerManager struct {
-	client client.Client
-	config *config.ControllerConfig
+	client    client.Client
+	config    *config.ControllerConfig
+	namespace string
 }
 
 // NewWorkerManager creates a new worker manager
+// The namespace is auto-detected from the controller's environment
 func NewWorkerManager(client client.Client, cfg *config.ControllerConfig) *WorkerManager {
+	namespace := detectNamespace(cfg)
+	klog.InfoS("Worker manager initialized", "namespace", namespace)
+
 	return &WorkerManager{
-		client: client,
-		config: cfg,
+		client:    client,
+		config:    cfg,
+		namespace: namespace,
 	}
 }
 
-// joinStrings joins a slice of strings with a separator
-func joinStrings(strs []string, sep string) string {
-	return strings.Join(strs, sep)
+// detectNamespace determines the namespace where worker pods should be created
+// Priority: 1. POD_NAMESPACE env var, 2. Service account namespace file, 3. Config, 4. Default
+func detectNamespace(cfg *config.ControllerConfig) string {
+	// 1. Try POD_NAMESPACE environment variable (injected by Kubernetes downward API)
+	if ns := os.Getenv("POD_NAMESPACE"); ns != "" {
+		klog.V(2).InfoS("Using namespace from POD_NAMESPACE env var", "namespace", ns)
+		return ns
+	}
+
+	// 2. Try reading from service account namespace file (in-cluster)
+	if data, err := os.ReadFile(namespaceFile); err == nil {
+		ns := string(data)
+		if ns != "" {
+			klog.V(2).InfoS("Using namespace from service account file", "namespace", ns)
+			return ns
+		}
+	}
+
+	// 3. Try config if explicitly set (backwards compatibility)
+	if cfg.Worker.Namespace != "" {
+		klog.V(2).InfoS("Using namespace from config", "namespace", cfg.Worker.Namespace)
+		return cfg.Worker.Namespace
+	}
+
+	// 4. Default to kube-system
+	klog.V(2).InfoS("Using default namespace", "namespace", "kube-system")
+	return "kube-system"
 }
 
-// buildWorkerEnvVars constructs environment variables for worker pods from controller config
+// buildWorkerEnvVars constructs environment variables for worker pods
+// Only includes node identity and k8s service info - worker runtime config comes from ConfigMap
 func (w *WorkerManager) buildWorkerEnvVars() []corev1.EnvVar {
-	envVars := []corev1.EnvVar{
+	return []corev1.EnvVar{
 		{
 			Name: "NODE_NAME",
 			ValueFrom: &corev1.EnvVarSource{
@@ -54,41 +90,7 @@ func (w *WorkerManager) buildWorkerEnvVars() []corev1.EnvVar {
 				},
 			},
 		},
-		{
-			Name:  "KUBERNETES_SERVICE_HOST",
-			Value: "kubernetes.default.svc.cluster.local",
-		},
-		{
-			Name:  "KUBERNETES_SERVICE_PORT",
-			Value: "443",
-		},
-		{
-			Name:  "CHECK_TIMEOUT",
-			Value: fmt.Sprintf("%ds", w.config.Worker.CheckTimeoutSeconds),
-		},
-		{
-			Name:  "DNS_TEST_DOMAINS",
-			Value: joinStrings(w.config.Worker.DNSTestDomains, ","),
-		},
-		{
-			Name:  "LOG_LEVEL",
-			Value: w.config.Logging.Level,
-		},
-		{
-			Name:  "LOG_FORMAT",
-			Value: w.config.Logging.Format,
-		},
 	}
-
-	// Add optional CLUSTER_DNS_IP if configured
-	if w.config.Worker.ClusterDNSIP != "" {
-		envVars = append(envVars, corev1.EnvVar{
-			Name:  "CLUSTER_DNS_IP",
-			Value: w.config.Worker.ClusterDNSIP,
-		})
-	}
-
-	return envVars
 }
 
 // WorkerPodStatus represents the status of a worker pod
@@ -132,22 +134,33 @@ func (w *WorkerManager) CreateWorkerPod(ctx context.Context, nodeName string) (*
 		},
 	)
 
-	// Parse resources
+	// Parse resources - make limits optional
 	resourceReqs := corev1.ResourceRequirements{
-		Requests: corev1.ResourceList{
-			corev1.ResourceCPU:    resource.MustParse(w.config.Worker.Resources.Requests.CPU),
-			corev1.ResourceMemory: resource.MustParse(w.config.Worker.Resources.Requests.Memory),
-		},
-		Limits: corev1.ResourceList{
-			corev1.ResourceCPU:    resource.MustParse(w.config.Worker.Resources.Limits.CPU),
-			corev1.ResourceMemory: resource.MustParse(w.config.Worker.Resources.Limits.Memory),
-		},
+		Requests: corev1.ResourceList{},
+		Limits:   corev1.ResourceList{},
 	}
 
+	// Add resource requests if specified
+	if w.config.Worker.Resources.Requests.CPU != "" {
+		resourceReqs.Requests[corev1.ResourceCPU] = resource.MustParse(w.config.Worker.Resources.Requests.CPU)
+	}
+	if w.config.Worker.Resources.Requests.Memory != "" {
+		resourceReqs.Limits[corev1.ResourceMemory] = resource.MustParse(w.config.Worker.Resources.Requests.Memory)
+		resourceReqs.Requests[corev1.ResourceMemory] = resource.MustParse(w.config.Worker.Resources.Requests.Memory)
+	}
+
+	// Add resource limits if specified (optional, especially for CPU)
+	if w.config.Worker.Resources.Limits.CPU != "" {
+		resourceReqs.Limits[corev1.ResourceCPU] = resource.MustParse(w.config.Worker.Resources.Limits.CPU)
+	}
+
+	if w.config.Worker.Resources.Limits.Memory != "" {
+		resourceReqs.Limits[corev1.ResourceMemory] = resource.MustParse(w.config.Worker.Resources.Limits.Memory)
+	}
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      podName,
-			Namespace: w.config.Worker.Namespace,
+			Namespace: w.namespace,
 			Labels: map[string]string{
 				"app":       "kube-node-ready",
 				"component": "worker",
@@ -174,6 +187,31 @@ func (w *WorkerManager) CreateWorkerPod(ctx context.Context, nodeName string) (*
 					Command:         []string{"/kube-node-ready-worker"},
 					Env:             w.buildWorkerEnvVars(),
 					Resources:       resourceReqs,
+					VolumeMounts: []corev1.VolumeMount{
+						{
+							Name:      "worker-config",
+							MountPath: "/etc/kube-node-ready",
+							ReadOnly:  true,
+						},
+					},
+				},
+			},
+			Volumes: []corev1.Volume{
+				{
+					Name: "worker-config",
+					VolumeSource: corev1.VolumeSource{
+						ConfigMap: &corev1.ConfigMapVolumeSource{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: w.config.Worker.ConfigMapName,
+							},
+							Items: []corev1.KeyToPath{
+								{
+									Key:  "worker-config.yaml",
+									Path: "worker-config.yaml",
+								},
+							},
+						},
+					},
 				},
 			},
 		},
@@ -186,7 +224,7 @@ func (w *WorkerManager) CreateWorkerPod(ctx context.Context, nodeName string) (*
 			existingPod := &corev1.Pod{}
 
 			podQuery := client.ObjectKey{
-				Namespace: w.config.Worker.Namespace,
+				Namespace: w.namespace,
 				Name:      podName,
 			}
 			if err := w.client.Get(ctx, podQuery, existingPod); err != nil {
@@ -206,7 +244,7 @@ func (w *WorkerManager) CreateWorkerPod(ctx context.Context, nodeName string) (*
 func (w *WorkerManager) GetWorkerPodStatus(ctx context.Context, podName string) (*WorkerPodStatus, error) {
 	pod := &corev1.Pod{}
 	err := w.client.Get(ctx, client.ObjectKey{
-		Namespace: w.config.Worker.Namespace,
+		Namespace: w.namespace,
 		Name:      podName,
 	}, pod)
 	if err != nil {
@@ -254,7 +292,7 @@ func (w *WorkerManager) DeleteWorkerPod(ctx context.Context, podName string) err
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      podName,
-			Namespace: w.config.Worker.Namespace,
+			Namespace: w.namespace,
 		},
 	}
 
@@ -275,7 +313,7 @@ func (w *WorkerManager) DeleteWorkerPod(ctx context.Context, podName string) err
 func (w *WorkerManager) FindWorkerPodForNode(ctx context.Context, nodeName string) (*corev1.Pod, error) {
 	podList := &corev1.PodList{}
 	err := w.client.List(ctx, podList,
-		client.InNamespace(w.config.Worker.Namespace),
+		client.InNamespace(w.namespace),
 		client.MatchingLabels{
 			"app":       "kube-node-ready",
 			"component": "worker",

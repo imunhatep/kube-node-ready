@@ -2,14 +2,16 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // WorkerConfig holds configuration for the worker component
 type WorkerConfig struct {
 	// Node identification
-	NodeName  string
-	Namespace string
+	NodeName string
 
 	// Check configuration
 	CheckTimeout   time.Duration
@@ -31,11 +33,73 @@ type WorkerConfig struct {
 	WorkerMode bool // Always true for worker
 }
 
-// LoadWorkerConfigFromEnv loads worker configuration from environment variables
+// workerConfigFile represents the YAML structure of the worker config file
+type workerConfigFile struct {
+	CheckTimeoutSeconds int      `yaml:"checkTimeoutSeconds"`
+	DNSTestDomains      []string `yaml:"dnsTestDomains"`
+	ClusterDNSIP        string   `yaml:"clusterDnsIp"`
+	Logging             struct {
+		Level  string `yaml:"level"`
+		Format string `yaml:"format"`
+	} `yaml:"logging"`
+}
+
+// LoadWorkerConfigFromFile loads worker configuration from a YAML file (ConfigMap mount)
+// and environment variables. File provides check configuration, environment provides node identity.
+func LoadWorkerConfigFromFile(configPath string) (*WorkerConfig, error) {
+	// Read the config file
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read worker config file: %w", err)
+	}
+
+	// Parse YAML
+	var fileCfg workerConfigFile
+	if err := yaml.Unmarshal(data, &fileCfg); err != nil {
+		return nil, fmt.Errorf("failed to parse worker config file: %w", err)
+	}
+
+	// Build WorkerConfig from file + environment
+	cfg := &WorkerConfig{
+		// From environment (injected by controller/k8s)
+		NodeName:              getEnv("NODE_NAME", ""),
+		KubernetesServiceHost: getEnv("KUBERNETES_SERVICE_HOST", ""),
+		KubernetesServicePort: getEnv("KUBERNETES_SERVICE_PORT", "443"),
+		KubeconfigPath:        getEnv("KUBECONFIG", ""),
+
+		// From config file
+		CheckTimeout:   time.Duration(fileCfg.CheckTimeoutSeconds) * time.Second,
+		DNSTestDomains: fileCfg.DNSTestDomains,
+		ClusterDNSIP:   fileCfg.ClusterDNSIP,
+		LogLevel:       fileCfg.Logging.Level,
+		LogFormat:      fileCfg.Logging.Format,
+
+		// Worker mode
+		WorkerMode: true,
+	}
+
+	// Apply defaults if not specified in file
+	if cfg.CheckTimeout == 0 {
+		cfg.CheckTimeout = 10 * time.Second
+	}
+	if len(cfg.DNSTestDomains) == 0 {
+		cfg.DNSTestDomains = []string{"kubernetes.default.svc.cluster.local", "google.com"}
+	}
+	if cfg.LogLevel == "" {
+		cfg.LogLevel = "info"
+	}
+	if cfg.LogFormat == "" {
+		cfg.LogFormat = "json"
+	}
+
+	return cfg, nil
+}
+
+// LoadWorkerConfigFromEnv loads worker configuration from environment variables only
+// This is kept for backward compatibility and testing
 func LoadWorkerConfigFromEnv() (*WorkerConfig, error) {
 	cfg := &WorkerConfig{
 		NodeName:              getEnv("NODE_NAME", ""),
-		Namespace:             getEnv("POD_NAMESPACE", "kube-system"),
 		CheckTimeout:          getDurationEnv("CHECK_TIMEOUT", 10*time.Second),
 		DNSTestDomains:        getSliceEnv("DNS_TEST_DOMAINS", []string{"kubernetes.default.svc.cluster.local", "google.com"}),
 		ClusterDNSIP:          getEnv("CLUSTER_DNS_IP", ""),
@@ -76,7 +140,6 @@ func (c *WorkerConfig) Validate() error {
 func (c *WorkerConfig) ToConfig() *Config {
 	return &Config{
 		NodeName:              c.NodeName,
-		Namespace:             c.Namespace,
 		CheckTimeout:          c.CheckTimeout,
 		DNSTestDomains:        c.DNSTestDomains,
 		ClusterDNSIP:          c.ClusterDNSIP,

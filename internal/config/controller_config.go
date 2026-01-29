@@ -10,28 +10,21 @@ import (
 )
 
 // WorkerPodConfig holds worker pod configuration
+// This only includes pod scheduling and lifecycle configuration.
+// Worker runtime configuration (checks, DNS, etc.) is managed via separate worker ConfigMap.
 type WorkerPodConfig struct {
 	Image             ImageConfig     `yaml:"image"`
 	Namespace         string          `yaml:"namespace"`
-	TimeoutSeconds    int             `yaml:"timeoutSeconds"` // Timeout in seconds
+	TimeoutSeconds    int             `yaml:"timeoutSeconds"` // Timeout in seconds for pod completion
 	ServiceAccount    string          `yaml:"serviceAccount"`
 	PriorityClassName string          `yaml:"priorityClassName"`
 	Resources         ResourcesConfig `yaml:"resources"`
-
-	// Worker runtime configuration (passed as environment variables)
-	CheckTimeoutSeconds int      `yaml:"checkTimeoutSeconds"` // Timeout for individual checks in seconds
-	DNSTestDomains      []string `yaml:"dnsTestDomains"`      // DNS domains to test
-	ClusterDNSIP        string   `yaml:"clusterDnsIp"`        // Cluster DNS IP (optional)
+	ConfigMapName     string          `yaml:"configMapName"` // Name of worker ConfigMap to mount
 }
 
 // GetTimeout returns timeout as time.Duration
 func (w *WorkerPodConfig) GetTimeout() time.Duration {
 	return time.Duration(w.TimeoutSeconds) * time.Second
-}
-
-// GetCheckTimeout returns check timeout as time.Duration
-func (w *WorkerPodConfig) GetCheckTimeout() time.Duration {
-	return time.Duration(w.CheckTimeoutSeconds) * time.Second
 }
 
 // ImageConfig holds container image configuration
@@ -152,8 +145,9 @@ func (c *ControllerConfig) Validate() error {
 	if c.Worker.Image.Tag == "" {
 		return fmt.Errorf("worker.image.tag is required")
 	}
-	if c.Worker.Namespace == "" {
-		return fmt.Errorf("worker.namespace is required")
+	// Note: worker.namespace is now optional - auto-detected from controller environment
+	if c.Worker.ConfigMapName == "" {
+		return fmt.Errorf("worker.configMapName is required")
 	}
 
 	// Required: reconciliation configuration

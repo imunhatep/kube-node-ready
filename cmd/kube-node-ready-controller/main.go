@@ -87,9 +87,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Determine the namespace that will be used for worker pods
+	workerNamespace := cfg.Worker.Namespace
+	if workerNamespace == "" {
+		workerNamespace = "<auto-detected>"
+	}
+
 	setupLog.Info("Configuration loaded",
 		"workerImage", cfg.GetWorkerImage(),
-		"workerNamespace", cfg.Worker.Namespace,
+		"workerNamespace", workerNamespace,
 		"maxRetries", cfg.Reconciliation.MaxRetries,
 		"taintCount", len(cfg.NodeManagement.Taints),
 		"verifiedLabel", cfg.NodeManagement.VerifiedLabel.Key,

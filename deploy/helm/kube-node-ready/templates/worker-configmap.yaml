@@ -1,0 +1,35 @@
+{{- if or (eq .Values.deploymentMode "controller") .Values.controller.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kube-node-ready.fullname" . }}-worker
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kube-node-ready.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+data:
+  worker-config.yaml: |
+    # Worker runtime configuration
+    # This file is mounted into worker pods and used by workers to perform node verification
+
+    # Check Configuration
+    checkTimeoutSeconds: {{ .Values.worker.config.checkTimeoutSeconds }}
+
+    # DNS Check Configuration
+    dnsTestDomains:
+    {{- range .Values.worker.config.dnsTestDomains }}
+      - {{ . | quote }}
+    {{- end }}
+
+    # Optional: Cluster DNS IP address
+    {{- if .Values.worker.config.clusterDnsIp }}
+    clusterDnsIp: {{ .Values.worker.config.clusterDnsIp | quote }}
+    {{- else }}
+    clusterDnsIp: ""
+    {{- end }}
+
+    # Logging Configuration
+    logging:
+      level: {{ .Values.worker.config.logging.level | quote }}
+      format: {{ .Values.worker.config.logging.format | quote }}
+{{- end }}

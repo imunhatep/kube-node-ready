@@ -127,7 +127,7 @@ The controller reads configuration from a ConfigMap mounted as `/etc/kube-node-r
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `controller.config.workerImage` | Image for worker pods | `ghcr.io/imunhatep/kube-node-ready:0.2.6` |
-| `controller.config.workerNamespace` | Namespace for worker pods | `kube-system` |
+| `controller.config.workerNamespace` | Namespace for worker pods (auto-detected if not set) | Auto-detected from controller |
 | `controller.config.workerTimeout` | Worker pod timeout | `"300s"` |
 | `controller.config.maxRetries` | Retry attempts for failed nodes | `5` |
 | `controller.config.retryBackoff` | Backoff strategy (exponential/linear) | `"exponential"` |
@@ -151,8 +151,8 @@ The controller reads configuration from a ConfigMap mounted as `/etc/kube-node-r
 |-----------|-------------|---------|
 | `controller.resources.requests.cpu` | CPU request | `50m` |
 | `controller.resources.requests.memory` | Memory request | `64Mi` |
-| `controller.resources.limits.cpu` | CPU limit | `200m` |
-| `controller.resources.limits.memory` | Memory limit | `128Mi` |
+| `controller.resources.limits.cpu` | CPU limit (optional) | `200m` |
+| `controller.resources.limits.memory` | Memory limit (optional) | `128Mi` |
 | `controller.serviceAccount.create` | Create service account | `true` |
 | `controller.serviceAccount.annotations` | Service account annotations | `{}` |
 | `controller.serviceAccount.name` | Service account name | `""` (auto-generated) |
@@ -209,8 +209,10 @@ The controller reads configuration from a ConfigMap mounted as `/etc/kube-node-r
 |-----------|-------------|---------|
 | `resources.requests.cpu` | CPU request | `50m` |
 | `resources.requests.memory` | Memory request | `64Mi` |
-| `resources.limits.cpu` | CPU limit | `100m` |
-| `resources.limits.memory` | Memory limit | `128Mi` |
+| `resources.limits.cpu` | CPU limit (optional, omit in loaded clusters) | `100m` |
+| `resources.limits.memory` | Memory limit (optional) | `128Mi` |
+
+**Note**: Resource limits, especially CPU limits, are optional. In loaded clusters, it's recommended to omit CPU limits to avoid throttling during node verification checks. Memory limits can be kept to prevent OOM issues.
 
 ### Security
 

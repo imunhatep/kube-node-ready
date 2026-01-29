@@ -254,7 +254,7 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: node-ready-worker-<node-name>-<random-suffix>
-  namespace: kube-system
+  namespace: kube-system  # Auto-detected from controller's namespace
   labels:
     app: kube-node-ready
     component: worker
@@ -289,7 +289,9 @@ spec:
         cpu: 50m
       limits:
         memory: 128Mi
-        cpu: 100m
+        # Note: CPU limits are optional and can be omitted
+        # Recommended to omit CPU limits in loaded clusters to avoid throttling
+        # cpu: 100m  # Optional
 ```
 
 #### Worker Execution Flow
