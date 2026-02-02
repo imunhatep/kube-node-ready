@@ -6,10 +6,12 @@ import (
 	"os"
 	"time"
 
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -21,7 +23,7 @@ const (
 	namespaceFile = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
 )
 
-// WorkerManager manages the lifecycle of worker pods
+// WorkerManager manages the lifecycle of worker jobs
 type WorkerManager struct {
 	client    client.Client
 	config    *config.ControllerConfig
@@ -41,7 +43,7 @@ func NewWorkerManager(client client.Client, cfg *config.ControllerConfig) *Worke
 	}
 }
 
-// detectNamespace determines the namespace where worker pods should be created
+// detectNamespace determines the namespace where worker jobs should be created
 // Priority: 1. POD_NAMESPACE env var, 2. Service account namespace file, 3. Config, 4. Default
 func detectNamespace(cfg *config.ControllerConfig) string {
 	// 1. Try POD_NAMESPACE environment variable (injected by Kubernetes downward API)
@@ -70,7 +72,7 @@ func detectNamespace(cfg *config.ControllerConfig) string {
 	return "kube-system"
 }
 
-// buildWorkerEnvVars constructs environment variables for worker pods
+// buildWorkerEnvVars constructs environment variables for worker jobs
 // Only includes node identity and k8s service info - worker runtime config comes from ConfigMap
 func (w *WorkerManager) buildWorkerEnvVars() []corev1.EnvVar {
 	return []corev1.EnvVar{
@@ -93,23 +95,24 @@ func (w *WorkerManager) buildWorkerEnvVars() []corev1.EnvVar {
 	}
 }
 
-// WorkerPodStatus represents the status of a worker pod
-type WorkerPodStatus struct {
-	Phase      corev1.PodPhase
+// WorkerJobStatus represents the status of a worker job
+type WorkerJobStatus struct {
+	Active     int32
+	Succeeded  int32
+	Failed     int32
+	Completed  bool
 	ExitCode   *int32
 	Reason     string
 	Message    string
-	Completed  bool
-	Succeeded  bool
 	StartTime  *time.Time
 	FinishTime *time.Time
 }
 
-// CreateWorkerPod creates a worker pod for the given node
-func (w *WorkerManager) CreateWorkerPod(ctx context.Context, nodeName string) (*corev1.Pod, error) {
-	podName := fmt.Sprintf("node-ready-worker-%s-%d", nodeName, time.Now().Unix())
+// CreateWorkerJob creates a worker job for the given node
+func (w *WorkerManager) CreateWorkerJob(ctx context.Context, nodeName string) (*batchv1.Job, error) {
+	jobName := fmt.Sprintf("node-ready-worker-%s-%d", nodeName, time.Now().Unix())
 
-	klog.InfoS("Creating worker pod", "pod", podName, "node", nodeName)
+	klog.InfoS("Creating worker job", "job", jobName, "node", nodeName)
 
 	// Build tolerations from config
 	tolerations := []corev1.Toleration{}
@@ -157,9 +160,37 @@ func (w *WorkerManager) CreateWorkerPod(ctx context.Context, nodeName string) (*
 	if w.config.Worker.Resources.Limits.Memory != "" {
 		resourceReqs.Limits[corev1.ResourceMemory] = resource.MustParse(w.config.Worker.Resources.Limits.Memory)
 	}
-	pod := &corev1.Pod{
+
+	// Set job defaults if not specified
+	var activeDeadlineSeconds *int64
+	if w.config.Worker.Job.ActiveDeadlineSeconds != nil {
+		deadline := int64(*w.config.Worker.Job.ActiveDeadlineSeconds)
+		activeDeadlineSeconds = &deadline
+	}
+
+	var backoffLimit *int32
+	if w.config.Worker.Job.BackoffLimit != nil {
+		backoffLimit = w.config.Worker.Job.BackoffLimit
+	} else {
+		// Default to 2 retries
+		defaultBackoffLimit := int32(2)
+		backoffLimit = &defaultBackoffLimit
+	}
+
+	var completions *int32
+	if w.config.Worker.Job.Completions != nil {
+		completions = w.config.Worker.Job.Completions
+	} else {
+		// Default to 1 completion
+		defaultCompletions := int32(1)
+		completions = &defaultCompletions
+	}
+
+	parallelism := int32(1)
+
+	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      podName,
+			Name:      jobName,
 			Namespace: w.namespace,
 			Labels: map[string]string{
 				"app":       "kube-node-ready",
@@ -171,43 +202,59 @@ func (w *WorkerManager) CreateWorkerPod(ctx context.Context, nodeName string) (*
 				"kube-node-ready/created-at":  time.Now().Format(time.RFC3339),
 			},
 		},
-		Spec: corev1.PodSpec{
-			RestartPolicy:      corev1.RestartPolicyNever,
-			ServiceAccountName: w.config.Worker.ServiceAccount,
-			PriorityClassName:  w.config.Worker.PriorityClassName,
-			NodeSelector: map[string]string{
-				"kubernetes.io/hostname": nodeName,
-			},
-			Tolerations: tolerations,
-			Containers: []corev1.Container{
-				{
-					Name:            "worker",
-					Image:           w.config.GetWorkerImage(),
-					ImagePullPolicy: corev1.PullPolicy(w.config.Worker.Image.PullPolicy),
-					Command:         []string{"/kube-node-ready-worker"},
-					Env:             w.buildWorkerEnvVars(),
-					Resources:       resourceReqs,
-					VolumeMounts: []corev1.VolumeMount{
-						{
-							Name:      "worker-config",
-							MountPath: "/etc/kube-node-ready",
-							ReadOnly:  true,
-						},
+		Spec: batchv1.JobSpec{
+			ActiveDeadlineSeconds:   activeDeadlineSeconds,
+			BackoffLimit:            backoffLimit,
+			Completions:             completions,
+			Parallelism:             &parallelism,
+			TTLSecondsAfterFinished: w.config.Worker.Job.TTLSecondsAfterFinished,
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"app":       "kube-node-ready",
+						"component": "worker",
+						"node":      nodeName,
 					},
 				},
-			},
-			Volumes: []corev1.Volume{
-				{
-					Name: "worker-config",
-					VolumeSource: corev1.VolumeSource{
-						ConfigMap: &corev1.ConfigMapVolumeSource{
-							LocalObjectReference: corev1.LocalObjectReference{
-								Name: w.config.Worker.ConfigMapName,
-							},
-							Items: []corev1.KeyToPath{
+				Spec: corev1.PodSpec{
+					RestartPolicy:      corev1.RestartPolicyNever,
+					ServiceAccountName: w.config.Worker.ServiceAccount,
+					PriorityClassName:  w.config.Worker.PriorityClassName,
+					NodeSelector: map[string]string{
+						"kubernetes.io/hostname": nodeName,
+					},
+					Tolerations: tolerations,
+					Containers: []corev1.Container{
+						{
+							Name:            "worker",
+							Image:           w.config.GetWorkerImage(),
+							ImagePullPolicy: corev1.PullPolicy(w.config.Worker.Image.PullPolicy),
+							Command:         []string{"kube-node-ready-worker"},
+							Env:             w.buildWorkerEnvVars(),
+							Resources:       resourceReqs,
+							VolumeMounts: []corev1.VolumeMount{
 								{
-									Key:  "worker-config.yaml",
-									Path: "worker-config.yaml",
+									Name:      "worker-config",
+									MountPath: "/etc/kube-node-ready",
+									ReadOnly:  true,
+								},
+							},
+						},
+					},
+					Volumes: []corev1.Volume{
+						{
+							Name: "worker-config",
+							VolumeSource: corev1.VolumeSource{
+								ConfigMap: &corev1.ConfigMapVolumeSource{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: w.config.Worker.ConfigMapName,
+									},
+									Items: []corev1.KeyToPath{
+										{
+											Key:  "worker-config.yaml",
+											Path: "worker-config.yaml",
+										},
+									},
 								},
 							},
 						},
@@ -217,102 +264,149 @@ func (w *WorkerManager) CreateWorkerPod(ctx context.Context, nodeName string) (*
 		},
 	}
 
-	if err := w.client.Create(ctx, pod); err != nil {
+	if err := w.client.Create(ctx, job); err != nil {
 		if errors.IsAlreadyExists(err) {
-			klog.InfoS("Worker pod already exists", "pod", podName, "node", nodeName)
-			// Get the existing pod
-			existingPod := &corev1.Pod{}
-
-			podQuery := client.ObjectKey{
+			klog.InfoS("Worker job already exists", "job", jobName, "node", nodeName)
+			// Get the existing job
+			existingJob := &batchv1.Job{}
+			jobQuery := client.ObjectKey{
 				Namespace: w.namespace,
-				Name:      podName,
+				Name:      jobName,
 			}
-			if err := w.client.Get(ctx, podQuery, existingPod); err != nil {
-				return nil, fmt.Errorf("failed to get existing pod: %w", err)
+			if err := w.client.Get(ctx, jobQuery, existingJob); err != nil {
+				return nil, fmt.Errorf("failed to get existing job: %w", err)
 			}
-			return existingPod, nil
+			return existingJob, nil
 		}
-		klog.ErrorS(err, "Failed to create worker pod", "pod", podName, "node", nodeName)
-		return nil, fmt.Errorf("failed to create worker pod: %w", err)
+		klog.ErrorS(err, "Failed to create worker job", "job", jobName, "node", nodeName)
+		return nil, fmt.Errorf("failed to create worker job: %w", err)
 	}
 
-	klog.InfoS("Worker pod created successfully", "pod", podName, "node", nodeName)
-	return pod, nil
+	klog.InfoS("Worker job created successfully", "job", jobName, "node", nodeName)
+	return job, nil
 }
 
-// GetWorkerPodStatus gets the status of a worker pod
-func (w *WorkerManager) GetWorkerPodStatus(ctx context.Context, podName string) (*WorkerPodStatus, error) {
-	pod := &corev1.Pod{}
-	err := w.client.Get(ctx, client.ObjectKey{
+// GetWorkerJobStatus gets the status of a worker job
+func (w *WorkerManager) GetWorkerJobStatus(ctx context.Context, jobName string) (*WorkerJobStatus, error) {
+	job := &batchv1.Job{}
+
+	jobQuery := client.ObjectKey{
 		Namespace: w.namespace,
-		Name:      podName,
-	}, pod)
-	if err != nil {
-		if errors.IsNotFound(err) {
-			return nil, fmt.Errorf("worker pod not found: %s", podName)
-		}
-		return nil, fmt.Errorf("failed to get worker pod: %w", err)
+		Name:      jobName,
 	}
 
-	status := &WorkerPodStatus{
-		Phase: pod.Status.Phase,
+	err := w.client.Get(ctx, jobQuery, job)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return nil, fmt.Errorf("worker job not found: %s", jobName)
+		}
+		return nil, fmt.Errorf("failed to get worker job: %w", err)
+	}
+
+	status := &WorkerJobStatus{
+		Active:    job.Status.Active,
+		Succeeded: job.Status.Succeeded,
+		Failed:    job.Status.Failed,
 	}
 
 	// Get start time
-	if pod.Status.StartTime != nil {
-		startTime := pod.Status.StartTime.Time
+	if job.Status.StartTime != nil {
+		startTime := job.Status.StartTime.Time
 		status.StartTime = &startTime
 	}
 
-	// Check if pod has completed
-	if pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed {
-		status.Completed = true
-		status.Succeeded = pod.Status.Phase == corev1.PodSucceeded
-
-		// Get container status for exit code
-		if len(pod.Status.ContainerStatuses) > 0 {
-			containerStatus := pod.Status.ContainerStatuses[0]
-			if containerStatus.State.Terminated != nil {
-				status.ExitCode = &containerStatus.State.Terminated.ExitCode
-				status.Reason = containerStatus.State.Terminated.Reason
-				status.Message = containerStatus.State.Terminated.Message
-				finishTime := containerStatus.State.Terminated.FinishedAt.Time
+	// Check job conditions for completion status
+	for _, condition := range job.Status.Conditions {
+		switch condition.Type {
+		case batchv1.JobComplete:
+			if condition.Status == corev1.ConditionTrue {
+				status.Completed = true
+				finishTime := condition.LastTransitionTime.Time
 				status.FinishTime = &finishTime
 			}
+		case batchv1.JobFailed:
+			if condition.Status == corev1.ConditionTrue {
+				status.Completed = true
+				status.Reason = condition.Reason
+				status.Message = condition.Message
+				finishTime := condition.LastTransitionTime.Time
+				status.FinishTime = &finishTime
+			}
+		}
+	}
+
+	// If job completed successfully, try to get exit code from pod
+	if status.Completed && status.Succeeded > 0 {
+		if exitCode, err := w.getJobPodExitCode(ctx, job); err == nil {
+			status.ExitCode = exitCode
 		}
 	}
 
 	return status, nil
 }
 
-// DeleteWorkerPod deletes a worker pod
-func (w *WorkerManager) DeleteWorkerPod(ctx context.Context, podName string) error {
-	klog.InfoS("Deleting worker pod", "pod", podName)
+// getJobPodExitCode attempts to get the exit code from a completed job's pod
+func (w *WorkerManager) getJobPodExitCode(ctx context.Context, job *batchv1.Job) (*int32, error) {
+	podList := &corev1.PodList{}
+	err := w.client.List(ctx, podList,
+		client.InNamespace(job.Namespace),
+		client.MatchingLabels{
+			"job-name": job.Name,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list pods for job: %w", err)
+	}
 
-	pod := &corev1.Pod{
+	// Find a completed pod
+	for _, pod := range podList.Items {
+		if pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed {
+			if len(pod.Status.ContainerStatuses) > 0 {
+				containerStatus := pod.Status.ContainerStatuses[0]
+				if containerStatus.State.Terminated != nil {
+					return &containerStatus.State.Terminated.ExitCode, nil
+				}
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("no terminated container found")
+}
+
+// DeleteWorkerJob deletes a worker job
+func (w *WorkerManager) DeleteWorkerJob(ctx context.Context, jobName string) error {
+	klog.InfoS("Deleting worker job", "job", jobName)
+
+	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      podName,
+			Name:      jobName,
 			Namespace: w.namespace,
 		},
 	}
 
-	if err := w.client.Delete(ctx, pod); err != nil {
-		if errors.IsNotFound(err) {
-			klog.InfoS("Worker pod already deleted", "pod", podName)
-			return nil
-		}
-		klog.ErrorS(err, "Failed to delete worker pod", "pod", podName)
-		return fmt.Errorf("failed to delete worker pod: %w", err)
+	// Set propagation policy to delete associated pods
+	propagationPolicy := metav1.DeletePropagationForeground
+	deleteOptions := &client.DeleteOptions{
+		PropagationPolicy: &propagationPolicy,
 	}
 
-	klog.InfoS("Worker pod deleted successfully", "pod", podName)
+	if err := w.client.Delete(ctx, job, deleteOptions); err != nil {
+		if errors.IsNotFound(err) {
+			klog.InfoS("Worker job already deleted", "job", jobName)
+			return nil
+		}
+		klog.ErrorS(err, "Failed to delete worker job", "job", jobName)
+		return fmt.Errorf("failed to delete worker job: %w", err)
+	}
+
+	klog.InfoS("Worker job deleted successfully", "job", jobName)
 	return nil
 }
 
-// FindWorkerPodForNode finds an existing worker pod for a given node
-func (w *WorkerManager) FindWorkerPodForNode(ctx context.Context, nodeName string) (*corev1.Pod, error) {
-	podList := &corev1.PodList{}
-	err := w.client.List(ctx, podList,
+// FindWorkerJobForNode finds an existing worker job for a given node
+func (w *WorkerManager) FindWorkerJobForNode(ctx context.Context, nodeName string) (*batchv1.Job, error) {
+	jobList := &batchv1.JobList{}
+	err := w.client.List(ctx, jobList,
 		client.InNamespace(w.namespace),
 		client.MatchingLabels{
 			"app":       "kube-node-ready",
@@ -321,30 +415,51 @@ func (w *WorkerManager) FindWorkerPodForNode(ctx context.Context, nodeName strin
 		},
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list worker pods: %w", err)
+		return nil, fmt.Errorf("failed to list worker jobs: %w", err)
 	}
 
-	// Find the most recent non-completed pod
-	var latestPod *corev1.Pod
+	// Find the most recent non-completed job
+	var latestJob *batchv1.Job
 	var latestTime time.Time
 
-	for i := range podList.Items {
-		pod := &podList.Items[i]
+	for i := range jobList.Items {
+		job := &jobList.Items[i]
 
-		// Skip completed pods
-		if pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed {
+		// Skip completed jobs (either succeeded or failed)
+		completed := false
+		for _, condition := range job.Status.Conditions {
+			if (condition.Type == batchv1.JobComplete || condition.Type == batchv1.JobFailed) &&
+				condition.Status == corev1.ConditionTrue {
+				completed = true
+				break
+			}
+		}
+		if completed {
 			continue
 		}
 
-		if pod.CreationTimestamp.Time.After(latestTime) {
-			latestTime = pod.CreationTimestamp.Time
-			latestPod = pod
+		if job.CreationTimestamp.Time.After(latestTime) {
+			latestTime = job.CreationTimestamp.Time
+			latestJob = job
 		}
 	}
 
-	if latestPod != nil {
-		return latestPod, nil
+	if latestJob != nil {
+		return latestJob, nil
 	}
 
-	return nil, fmt.Errorf("no active worker pod found for node: %s", nodeName)
+	return nil, fmt.Errorf("no active worker job found for node: %s", nodeName)
+}
+
+// GetJobUID gets the UID of a job for tracking purposes
+func (w *WorkerManager) GetJobUID(ctx context.Context, jobName string) (types.UID, error) {
+	job := &batchv1.Job{}
+	err := w.client.Get(ctx, client.ObjectKey{
+		Namespace: w.namespace,
+		Name:      jobName,
+	}, job)
+	if err != nil {
+		return "", err
+	}
+	return job.UID, nil
 }

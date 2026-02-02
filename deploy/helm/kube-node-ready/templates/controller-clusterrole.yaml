@@ -15,10 +15,18 @@ rules:
   resources: ["nodes/status"]
   verbs: ["get", "update", "patch"]
 
-# Permissions for pod management (worker pods)
+# Permissions for job management (worker jobs)
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["get", "list", "watch", "create", "delete", "deletecollection"]
+- apiGroups: ["batch"]
+  resources: ["jobs/status"]
+  verbs: ["get"]
+
+# Permissions for pod management (for job status monitoring)
 - apiGroups: [""]
   resources: ["pods"]
-  verbs: ["get", "list", "watch", "create", "delete", "deletecollection"]
+  verbs: ["get", "list", "watch"]
 - apiGroups: [""]
   resources: ["pods/status"]
   verbs: ["get"]

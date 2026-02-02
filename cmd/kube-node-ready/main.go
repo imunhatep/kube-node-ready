@@ -281,10 +281,23 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
+	// Create dynamic client for custom resources (like Karpenter NodeClaim)
+	dynamicClient, err := k8sclient.CreateDynamicClient(clientCfg)
+	if err != nil {
+		klog.InfoS("Failed to create dynamic client, proceeding without it", "error", err)
+		dynamicClient = nil
+	}
+
 	if clientset != nil {
 		klog.Info("Kubernetes client created successfully")
 	} else {
 		klog.Info("Running without Kubernetes client (network checks only)")
+	}
+
+	if dynamicClient != nil {
+		klog.Info("Dynamic client created successfully")
+	} else {
+		klog.Info("Running without dynamic client (no custom resource support)")
 	}
 
 	// Create context with timeout and cancellation
@@ -312,7 +325,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		// Delete node if configured and not in dry-run mode
 		if cfg.DeleteFailedNode && !cfg.DryRun && clientset != nil {
 			klog.InfoS("DeleteFailedNode is enabled, deleting node", "node", cfg.NodeName)
-			nodeManager := node.NewManager(cfg, clientset)
+			nodeManager := node.NewManager(cfg, clientset, dynamicClient)
 			if deleteErr := nodeManager.DeleteNode(context.Background()); deleteErr != nil {
 				klog.ErrorS(deleteErr, "Failed to delete node after verification failure")
 				return fmt.Errorf("verification failed and node deletion failed: %w (original error: %v)", deleteErr, err)
@@ -336,7 +349,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		klog.Info("No Kubernetes client available: skipping node updates")
 	} else {
 		klog.Info("Updating node status")
-		nodeManager := node.NewManager(cfg, clientset)
+		nodeManager := node.NewManager(cfg, clientset, dynamicClient)
 		if err := nodeManager.RemoveTaintAndAddLabel(context.Background()); err != nil {
 			klog.ErrorS(err, "Failed to update node")
 			return fmt.Errorf("failed to update node: %w", err)

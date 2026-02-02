@@ -53,7 +53,7 @@ When new nodes join a Kubernetes cluster, they may have networking issues such a
 - ✅ **On-demand workers** - Pods created only when needed, then terminated
 - ✅ **Centralized metrics** - Single Prometheus endpoint for all nodes
 - ✅ **Automatic retries** - Exponential backoff with configurable limits
-- ✅ **Node remediation** - Optional automatic deletion of failed nodes
+- ✅ **Node remediation** - Optional automatic deletion of failed nodes (with Karpenter NodeClaim detection)
 - ✅ **Reconciliation loop** - Ensures all nodes are verified
 - ✅ **Leader election** - High availability support
 - ✅ **Karpenter-optimized** - Perfect for dynamic node scaling
@@ -277,6 +277,31 @@ spec:
           effect: NoSchedule
       # ... other configuration
 ```
+
+### Karpenter NodeClaim Integration
+
+When `deleteFailedNodes` is enabled, kube-node-ready automatically detects Karpenter-managed nodes and prefers to delete the corresponding `NodeClaim` resource instead of the node directly. This ensures proper cleanup and allows Karpenter to handle termination gracefully.
+
+**How it works:**
+1. When node verification fails and deletion is triggered
+2. kube-node-ready searches for NodeClaim resources with `status.nodeName` matching the failed node
+3. If a NodeClaim is found, it deletes the NodeClaim (preferred method)
+4. If no NodeClaim is found, it falls back to direct node deletion
+5. Karpenter handles the actual node termination and cleanup
+
+**Benefits:**
+- ✅ Proper integration with Karpenter's lifecycle management
+- ✅ Maintains Karpenter's termination workflows (draining, finalizers, etc.)
+- ✅ Preserves Karpenter's spot instance handling
+- ✅ Automatic fallback for non-Karpenter nodes
+
+**Example logs:**
+```
+INFO Found NodeClaim for failed node, deleting NodeClaim instead  nodeClaim=default-12345 node=ip-192-168-1-100
+INFO Successfully deleted NodeClaim, node should be terminated by Karpenter  nodeClaim=default-12345
+```
+
+See [examples/karpenter-example.yaml](examples/karpenter-example.yaml) for NodeClaim resource format.
 
 ## Verification Checks
 

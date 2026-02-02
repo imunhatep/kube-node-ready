@@ -27,8 +27,13 @@ func setupTestNodeReconciler(t *testing.T) (*NodeReconciler, client.Client, *con
 				Tag:        "test-tag",
 				PullPolicy: "IfNotPresent",
 			},
-			Namespace:         "test-namespace",
-			TimeoutSeconds:    300,
+			Namespace: "test-namespace",
+			Job: config.JobConfig{
+				ActiveDeadlineSeconds:   int32Ptr(300),
+				BackoffLimit:            int32Ptr(3),
+				Completions:             int32Ptr(1),
+				TTLSecondsAfterFinished: int32Ptr(600),
+			},
 			ServiceAccount:    "test-sa",
 			PriorityClassName: "system-node-critical",
 			Resources: config.ResourcesConfig{

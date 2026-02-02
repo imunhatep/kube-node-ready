@@ -9,22 +9,30 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// JobConfig holds job-specific configuration
+type JobConfig struct {
+	ActiveDeadlineSeconds   *int32 `yaml:"activeDeadlineSeconds"`   // Job timeout (nil for no timeout)
+	BackoffLimit            *int32 `yaml:"backoffLimit"`            // Number of retries (nil for 6)
+	Completions             *int32 `yaml:"completions"`             // Number of successful completions (nil for 1)
+	TTLSecondsAfterFinished *int32 `yaml:"ttlSecondsAfterFinished"` // Auto-cleanup completed jobs (nil for no cleanup)
+}
+
 // WorkerPodConfig holds worker pod configuration
 // This only includes pod scheduling and lifecycle configuration.
 // Worker runtime configuration (checks, DNS, etc.) is managed via separate worker ConfigMap.
 type WorkerPodConfig struct {
 	Image             ImageConfig     `yaml:"image"`
 	Namespace         string          `yaml:"namespace"`
-	TimeoutSeconds    int             `yaml:"timeoutSeconds"` // Timeout in seconds for pod completion
 	ServiceAccount    string          `yaml:"serviceAccount"`
 	PriorityClassName string          `yaml:"priorityClassName"`
 	Resources         ResourcesConfig `yaml:"resources"`
 	ConfigMapName     string          `yaml:"configMapName"` // Name of worker ConfigMap to mount
+	Job               JobConfig       `yaml:"job"`           // Job-specific configuration
 }
 
 // GetTimeout returns timeout as time.Duration
 func (w *WorkerPodConfig) GetTimeout() time.Duration {
-	return time.Duration(w.TimeoutSeconds) * time.Second
+	return time.Duration(*w.Job.ActiveDeadlineSeconds) * time.Second
 }
 
 // ImageConfig holds container image configuration
@@ -91,8 +99,8 @@ type HealthConfig struct {
 
 // LoggingConfig holds logging configuration
 type LoggingConfig struct {
-	Level  string `yaml:"level"`
-	Format string `yaml:"format"`
+	Level  string `default:"info" yaml:"level"`
+	Format string `default:"json" yaml:"format"`
 }
 
 // KubernetesConfig holds Kubernetes client configuration
@@ -162,8 +170,8 @@ func (c *ControllerConfig) Validate() error {
 	}
 
 	// Required: timeout must be reasonable
-	if c.Worker.TimeoutSeconds < 10 {
-		return fmt.Errorf("worker.timeoutSeconds must be at least 10")
+	if c.Worker.Job.ActiveDeadlineSeconds == nil || *c.Worker.Job.ActiveDeadlineSeconds < 10 {
+		return fmt.Errorf("worker.Job.ActiveDeadlineSeconds must be at least 10 seconds")
 	}
 
 	// Required: ports must be valid
@@ -175,9 +183,9 @@ func (c *ControllerConfig) Validate() error {
 	}
 
 	// Required: at least one taint must be configured
-	if len(c.NodeManagement.Taints) == 0 {
-		return fmt.Errorf("nodeManagement.taints must have at least one taint configured")
-	}
+	//if len(c.NodeManagement.Taints) == 0 {
+	//	return fmt.Errorf("nodeManagement.taints must have at least one taint configured")
+	//}
 
 	// Validate each taint
 	for i, taint := range c.NodeManagement.Taints {

@@ -42,6 +42,8 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	startTime := time.Now()
 	log := klog.FromContext(ctx)
 
+	log.Info("NodeReconciler: new reconcile invoked")
+
 	// Fetch the node
 	node := &corev1.Node{}
 	if err := r.Get(ctx, req.NamespacedName, node); err != nil {
@@ -114,23 +116,27 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	return ctrl.Result{RequeueAfter: r.Config.Reconciliation.GetInterval()}, nil
 }
 
-// handleUnverified creates a worker pod for an unverified node
+// handleUnverified creates a worker job for an unverified node
 func (r *NodeReconciler) handleUnverified(ctx context.Context, node *corev1.Node, state *NodeState) (ctrl.Result, error) {
 	klog.InfoS("Handling unverified node", "node", node.Name)
 
-	// Create worker pod
-	pod, err := r.WorkerManager.CreateWorkerPod(ctx, node.Name)
+	// Create worker job
+	job, err := r.WorkerManager.CreateWorkerJob(ctx, node.Name)
 	if err != nil {
-		klog.ErrorS(err, "Failed to create worker pod", "node", node.Name)
+		klog.ErrorS(err, "Failed to create worker job", "node", node.Name)
 		metrics.RecordWorkerPodCreationError(node.Name, "create_failed")
-		metrics.RecordReconciliationError(node.Name, "worker_pod_creation_error")
+		metrics.RecordReconciliationError(node.Name, "worker_job_creation_error")
 		metrics.RecordReconciliation("error")
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, err
 	}
 
+	// Get job UID for tracking
+	jobUID := string(job.UID)
+
 	// Update state
 	state.State = StatePending
-	state.WorkerPodName = pod.Name
+	state.WorkerJobName = job.Name
+	state.JobUID = jobUID
 	state.LastAttempt = time.Now()
 	state.AttemptCount++
 	r.StateCache.Set(node.Name, state)
@@ -141,9 +147,10 @@ func (r *NodeReconciler) handleUnverified(ctx context.Context, node *corev1.Node
 	metrics.SetNodeRetryCount(node.Name, state.AttemptCount)
 	metrics.RecordReconciliation("worker_created")
 
-	klog.InfoS("Worker pod created, transitioning to pending",
+	klog.InfoS("Worker job created, transitioning to pending",
 		"node", node.Name,
-		"pod", pod.Name,
+		"job", job.Name,
+		"jobUID", jobUID,
 		"attempt", state.AttemptCount,
 	)
 
@@ -151,71 +158,58 @@ func (r *NodeReconciler) handleUnverified(ctx context.Context, node *corev1.Node
 	return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 }
 
-// handleInProgress monitors the worker pod and processes results
+// handleInProgress monitors the worker job and processes results
 func (r *NodeReconciler) handleInProgress(ctx context.Context, node *corev1.Node, state *NodeState) (ctrl.Result, error) {
-	klog.InfoS("Handling in-progress node", "node", node.Name, "pod", state.WorkerPodName)
+	klog.InfoS("Handling in-progress node", "node", node.Name, "job", state.WorkerJobName)
 
-	// Get worker pod status
-	status, err := r.WorkerManager.GetWorkerPodStatus(ctx, state.WorkerPodName)
+	// Get worker job status
+	status, err := r.WorkerManager.GetWorkerJobStatus(ctx, state.WorkerJobName)
 	if err != nil {
-		klog.ErrorS(err, "Failed to get worker pod status", "node", node.Name, "pod", state.WorkerPodName)
-		// Pod might have been deleted externally, reset to unverified
+		klog.ErrorS(err, "Failed to get worker job status", "node", node.Name, "job", state.WorkerJobName)
+		// Job might have been deleted externally, reset to unverified
 		state.State = StateUnverified
-		state.WorkerPodName = ""
+		state.WorkerJobName = ""
+		state.JobUID = ""
 		r.StateCache.Set(node.Name, state)
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
-	// Update state if needed
-	if state.State == StatePending && status.Phase == corev1.PodRunning {
-		klog.InfoS("Worker pod is running", "node", node.Name, "pod", state.WorkerPodName)
+	// Update state if job is now running
+	if state.State == StatePending && status.Active > 0 {
+		klog.InfoS("Worker job is running", "node", node.Name, "job", state.WorkerJobName)
 		state.State = StateInProgress
 		r.StateCache.Set(node.Name, state)
 		metrics.RecordReconciliation("worker_running")
 	}
 
-	// Check for timeout
-	if time.Since(state.LastAttempt) > r.Config.Worker.GetTimeout() {
-		duration := time.Since(state.LastAttempt).Seconds()
-		klog.InfoS("Worker pod timed out", "node", node.Name, "pod", state.WorkerPodName)
-		// Clean up pod
-		_ = r.WorkerManager.DeleteWorkerPod(ctx, state.WorkerPodName)
-
-		state.State = StateFailed
-		state.LastError = "worker pod timed out"
-		r.StateCache.Set(node.Name, state)
-
-		// Record metrics
-		metrics.RecordWorkerPodFailed(node.Name, "timeout")
-		metrics.RecordWorkerPodDuration(node.Name, "timeout", duration)
-		metrics.SetWorkerPodsActive(node.Name, 0)
-		metrics.RecordReconciliation("worker_timeout")
-
-		return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
-	}
-
-	// Check if pod has completed
+	// Check if job has completed (either successfully or failed)
 	if !status.Completed {
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
-	// Calculate worker pod duration
-	duration := time.Since(state.LastAttempt).Seconds()
+	// Calculate worker job duration
+	var duration float64
+	if status.StartTime != nil && status.FinishTime != nil {
+		duration = status.FinishTime.Sub(*status.StartTime).Seconds()
+	} else {
+		duration = time.Since(state.LastAttempt).Seconds()
+	}
 
 	// Process completion
-	klog.InfoS("Worker pod completed",
+	klog.InfoS("Worker job completed",
 		"node", node.Name,
-		"pod", state.WorkerPodName,
-		"exitCode", status.ExitCode,
+		"job", state.WorkerJobName,
 		"succeeded", status.Succeeded,
+		"failed", status.Failed,
+		"exitCode", status.ExitCode,
 		"duration", duration,
 	)
 
-	// Clean up worker pod
-	_ = r.WorkerManager.DeleteWorkerPod(ctx, state.WorkerPodName)
+	// Clean up worker job (jobs can auto-cleanup with TTL, but we clean up manually for control)
+	//_ = r.WorkerManager.DeleteWorkerJob(ctx, state.WorkerJobName)
 	metrics.SetWorkerPodsActive(node.Name, 0)
 
-	if status.Succeeded && status.ExitCode != nil && *status.ExitCode == 0 {
+	if status.Succeeded > 0 && (status.ExitCode == nil || *status.ExitCode == 0) {
 		// Success - mark as verified
 		klog.InfoS("Verification successful, marking node as verified", "node", node.Name)
 
@@ -235,6 +229,9 @@ func (r *NodeReconciler) handleInProgress(ctx context.Context, node *corev1.Node
 		errMsg := status.Message
 		if status.ExitCode != nil {
 			errMsg = fmt.Sprintf("exit code %d: %s", *status.ExitCode, status.Message)
+		}
+		if errMsg == "" {
+			errMsg = status.Reason
 		}
 
 		// Record metrics
@@ -277,7 +274,8 @@ func (r *NodeReconciler) handleFailed(ctx context.Context, node *corev1.Node, st
 		// Retry
 		klog.InfoS("Retrying verification", "node", node.Name, "attempt", state.AttemptCount+1)
 		state.State = StateUnverified
-		state.WorkerPodName = ""
+		state.WorkerJobName = ""
+		state.JobUID = ""
 		r.StateCache.Set(node.Name, state)
 
 		metrics.RecordReconciliation("retry")
@@ -336,7 +334,7 @@ func (r *NodeReconciler) calculateBackoff(attempt int) time.Duration {
 }
 
 // SetupWithManager sets up the controller with the Manager
-func (r *NodeReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *NodeReconciler) SetupWithManager(mgr ctrl.Manager, log klog.Logger) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&corev1.Node{}).
 		WithEventFilter(predicate.NewPredicateFuncs(func(object client.Object) bool {
@@ -350,6 +348,8 @@ func (r *NodeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			// 2. Have any of the unverified taints
 			hasVerified := hasVerifiedLabel(node, r.Config.NodeManagement.VerifiedLabel.Key)
 			hasTaint := hasAnyUnverifiedTaint(node, r.Config.NodeManagement.Taints)
+
+			log.Info("Node event received", "node", node.Name, "hasVerified", hasVerified, "hasTaint", hasTaint)
 
 			return !hasVerified && hasTaint
 		})).
@@ -367,6 +367,10 @@ func hasVerifiedLabel(node *corev1.Node, labelKey string) bool {
 
 // hasAnyUnverifiedTaint checks if a node has any of the configured unverified taints
 func hasAnyUnverifiedTaint(node *corev1.Node, taints []config.TaintConfig) bool {
+	if len(taints) == 0 {
+		return true
+	}
+
 	for _, configTaint := range taints {
 		for _, nodeTaint := range node.Spec.Taints {
 			if nodeTaint.Key == configTaint.Key {

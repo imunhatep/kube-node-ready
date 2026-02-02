@@ -14,11 +14,11 @@ spec:
     app.kubernetes.io/component: controller
   ports:
   - name: metrics
-    port: {{ .Values.controller.config.metrics.port }}
+    port: {{ .Values.controller.metrics.port }}
     targetPort: metrics
     protocol: TCP
   - name: health
-    port: {{ .Values.controller.config.health.port }}
+    port: {{ .Values.controller.health.port }}
     targetPort: health
     protocol: TCP
 {{- end }}

@@ -62,8 +62,6 @@ spec:
 
       containers:
       - name: controller
-        securityContext:
-          {{- toYaml .Values.securityContext | nindent 12 }}
         image: "{{ .Values.controller.image.repository }}:{{ .Values.controller.image.tag | default .Chart.AppVersion }}"
         imagePullPolicy: {{ .Values.controller.image.pullPolicy }}
         command: ["/kube-node-ready-controller"]
@@ -75,11 +73,6 @@ spec:
           {{- else }}
           - --leader-elect=false
           {{- end }}
-
-        volumeMounts:
-        - name: config
-          mountPath: /etc/kube-node-ready
-          readOnly: true
 
         ports:
         - name: metrics
@@ -109,6 +102,14 @@ spec:
 
         resources:
           {{- toYaml .Values.controller.resources | nindent 12 }}
+
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 10 }}
+
+        volumeMounts:
+          - name: config
+            mountPath: /etc/kube-node-ready
+            readOnly: true
 
       volumes:
       - name: config

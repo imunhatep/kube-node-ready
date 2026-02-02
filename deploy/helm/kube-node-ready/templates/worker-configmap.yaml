@@ -11,6 +11,8 @@ data:
   worker-config.yaml: |
     # Worker runtime configuration
     # This file is mounted into worker pods and used by workers to perform node verification
+    # Worker Runtime Configuration
+    maxRetries: {{ .Values.worker.config.maxRetries }}
 
     # Check Configuration
     checkTimeoutSeconds: {{ .Values.worker.config.checkTimeoutSeconds }}

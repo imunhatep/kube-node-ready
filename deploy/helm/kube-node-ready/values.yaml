@@ -40,26 +40,51 @@ controller:
     #tag: "0.2.6"
     pullPolicy: IfNotPresent
 
-  config:
-    # Worker Pod Configuration
-    worker:
-      image:
-        repository: ghcr.io/imunhatep/kube-node-ready
-        tag: "0.2.6"
-        pullPolicy: IfNotPresent
-      # Note: namespace is auto-detected from controller's environment
-      # Uncomment to override (defaults to controller's namespace)
-      # namespace: kube-system
-      timeoutSeconds: 300  # Timeout in seconds
-      serviceAccount: ""  # Optional: defaults to namespace default SA
-      priorityClassName: system-node-critical
-      resources:
-        requests:
-          cpu: "50m"
-          memory: "64Mi"
-        limits:
-          memory: "128Mi"  # Optional: recommended to prevent OOM issues
+  # Service configuration
+  service:
+    type: ClusterIP  # Service type for controller metrics/health endpoints
 
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m  # Optional: can be omitted to avoid throttling
+      memory: 128Mi  # Optional: recommended to prevent OOM issues
+
+  serviceAccount:
+    create: true
+    annotations: {}
+    name: ""
+
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+  # Health Configuration
+  health:
+    port: 8081
+
+  metrics:
+    enabled: true
+    port: 8080
+
+    # Prometheus ServiceMonitor (requires Prometheus Operator)
+    serviceMonitor:
+      enabled: false  # Set to true to create ServiceMonitor
+      # namespace: monitoring  # Optional: namespace for ServiceMonitor (defaults to release namespace)
+      interval: 30s  # Scrape interval
+      scrapeTimeout: 10s  # Scrape timeout
+      labels: {}  # Additional labels for ServiceMonitor (e.g., for Prometheus selector)
+      # prometheus: kube-prometheus
+      annotations: {}  # Additional annotations
+      # relabelings: []  # Relabeling configs
+      # metricRelabelings: []  # Metric relabeling configs
+      # targetLabels: []  # Labels to transfer from service to metrics
+
+  config:
     # Reconciliation Configuration
     reconciliation:
       intervalSeconds: 10  # Interval in seconds
@@ -81,26 +106,13 @@ controller:
         key: node-ready/verified
         value: "true"
 
-  metrics:
-    enabled: true
-    port: 8080
+    metrics:
+      enabled: true
+      port: 8080
 
-  # Prometheus ServiceMonitor (requires Prometheus Operator)
-  serviceMonitor:
-    enabled: false  # Set to true to create ServiceMonitor
-    # namespace: monitoring  # Optional: namespace for ServiceMonitor (defaults to release namespace)
-    interval: 30s  # Scrape interval
-    scrapeTimeout: 10s  # Scrape timeout
-    labels: {}  # Additional labels for ServiceMonitor (e.g., for Prometheus selector)
-      # prometheus: kube-prometheus
-    annotations: {}  # Additional annotations
-    # relabelings: []  # Relabeling configs
-    # metricRelabelings: []  # Metric relabeling configs
-    # targetLabels: []  # Labels to transfer from service to metrics
-
-  # Health Configuration
-  health:
-    port: 8081
+    # Health Configuration
+    health:
+      port: 8081
 
     # Logging Configuration
     logging:
@@ -113,32 +125,45 @@ controller:
       qps: 50
       burst: 100
 
-  resources:
-    requests:
-      cpu: 50m
-      memory: 64Mi
-    limits:
-      cpu: 200m  # Optional: can be omitted to avoid throttling
-      memory: 128Mi  # Optional: recommended to prevent OOM issues
+    # Worker Pod Configuration
+    worker:
+      image:
+        repository: ghcr.io/imunhatep/kube-node-ready
+        tag: "0.2.6"
+        pullPolicy: IfNotPresent
+      # Note: namespace is auto-detected from controller's environment
+      # Uncomment to override (defaults to controller's namespace)
+      # namespace: kube-system
+      timeoutSeconds: 300  # Timeout in seconds
+      serviceAccount: ""  # Optional: defaults to namespace default SA
+      priorityClassName: system-node-critical
+      resources:
+        requests:
+          cpu: "50m"
+          memory: "64Mi"
+        limits:
+          memory: "128Mi"  # Optional: recommended to prevent OOM issues
 
-  serviceAccount:
-    create: true
-    annotations: {}
-    name: ""
-
-  podAnnotations: {}
-  nodeSelector: {}
-  tolerations: []
-  affinity: {}
-
-  # Service configuration
-  service:
-    type: ClusterIP  # Service type for controller metrics/health endpoints
+      # Job Configuration (optional - provides better reliability and auto-retry)
+      job:
+        # Job timeout - if not specified, falls back to timeoutSeconds above
+        activeDeadlineSeconds: 300
+        # Number of retries for failed pods (Kubernetes handles this automatically)
+        backoffLimit: 2
+        # Number of successful completions required
+        completions: 1
+        # Number of parallel pods (should be 1 for node verification)
+        parallelism: 1
+        # Auto-cleanup completed jobs after specified seconds (optional)
+        # ttlSecondsAfterFinished: 600
 
 # Worker configuration (used by controller mode)
 # This configuration is mounted into worker pods via ConfigMap
 worker:
   config:
+    # Worker runtime configuration
+    maxRetries: 1
+
     # Check timeout for individual checks (DNS, network, K8s API)
     checkTimeoutSeconds: 5
 

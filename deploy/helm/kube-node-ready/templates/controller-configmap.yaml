@@ -29,6 +29,24 @@ data:
           cpu: {{ .Values.controller.config.worker.resources.limits.cpu | quote }}
           memory: {{ .Values.controller.config.worker.resources.limits.memory | quote }}
       configMapName: {{ include "kube-node-ready.fullname" . }}-worker
+      {{- if .Values.controller.config.worker.job }}
+      job:
+        {{- if .Values.controller.config.worker.job.activeDeadlineSeconds }}
+        activeDeadlineSeconds: {{ .Values.controller.config.worker.job.activeDeadlineSeconds }}
+        {{- end }}
+        {{- if .Values.controller.config.worker.job.backoffLimit }}
+        backoffLimit: {{ .Values.controller.config.worker.job.backoffLimit }}
+        {{- end }}
+        {{- if .Values.controller.config.worker.job.completions }}
+        completions: {{ .Values.controller.config.worker.job.completions }}
+        {{- end }}
+        {{- if .Values.controller.config.worker.job.parallelism }}
+        parallelism: {{ .Values.controller.config.worker.job.parallelism }}
+        {{- end }}
+        {{- if .Values.controller.config.worker.job.ttlSecondsAfterFinished }}
+        ttlSecondsAfterFinished: {{ .Values.controller.config.worker.job.ttlSecondsAfterFinished }}
+        {{- end }}
+      {{- end }}
 
     # Reconciliation Configuration
     reconciliation:

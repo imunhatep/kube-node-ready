@@ -54,17 +54,17 @@ RUN addgroup -g 1000 nodecheck && \
     adduser -D -u 1000 -G nodecheck nodecheck
 
 # Copy all binaries from builder
-COPY --from=builder /build/kube-node-ready /usr/local/bin/kube-node-ready
-COPY --from=builder /build/kube-node-ready-controller /usr/local/bin/kube-node-ready-controller
-COPY --from=builder /build/kube-node-ready-worker /usr/local/bin/kube-node-ready-worker
+COPY --from=builder /build/kube-node-ready /usr/bin/kube-node-ready
+COPY --from=builder /build/kube-node-ready-controller /usr/bin/kube-node-ready-controller
+COPY --from=builder /build/kube-node-ready-worker /usr/bin/kube-node-ready-worker
 
 # Set ownership
-RUN chown nodecheck:nodecheck /usr/local/bin/kube-node-ready && \
-    chown nodecheck:nodecheck /usr/local/bin/kube-node-ready-controller && \
-    chown nodecheck:nodecheck /usr/local/bin/kube-node-ready-worker
+RUN chown nodecheck:nodecheck /usr/bin/kube-node-ready && \
+    chown nodecheck:nodecheck /usr/bin/kube-node-ready-controller && \
+    chown nodecheck:nodecheck /usr/bin/kube-node-ready-worker
 
 # Use non-root user
 USER nodecheck
 
 # Set entrypoint
-ENTRYPOINT ["/usr/local/bin/kube-node-ready"]
+ENTRYPOINT ["/usr/bin/kube-node-ready"]

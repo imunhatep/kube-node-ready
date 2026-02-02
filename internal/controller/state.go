@@ -21,7 +21,8 @@ const (
 type NodeState struct {
 	NodeName      string
 	State         NodeVerificationState
-	WorkerPodName string
+	WorkerJobName string // Changed from WorkerPodName
+	JobUID        string // Added for better job tracking
 	LastAttempt   time.Time
 	AttemptCount  int
 	LastError     string

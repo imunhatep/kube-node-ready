@@ -6,15 +6,9 @@
 worker:
   # Container image configuration
   image:
-    repository: ghcr.io/imunhatep/kube-node-ready
-    tag: "0.2.6"
-    pullPolicy: IfNotPresent
-
-  # Kubernetes settings
-  # Note: namespace is auto-detected from controller's environment (POD_NAMESPACE env var or service account)
-  # You can explicitly set it here for backwards compatibility, but it's not required
-  # namespace: kube-system
-  timeoutSeconds: 300
+    repository: ghcr.io/kube-node-ready
+    tag: latest
+    pullPolicy: Never # IfNotPresent
 
   # Optional: Service account for worker pods (defaults to namespace default)
   serviceAccount: ""
@@ -36,6 +30,17 @@ worker:
   # ConfigMap name containing worker runtime configuration
   configMapName: kube-node-ready-worker
 
+  # Job Configuration (optional - provides better reliability and auto-retry)
+  job:
+    # Job timeout
+    activeDeadlineSeconds: 300
+    # Number of retries for failed pods (Kubernetes handles this automatically)
+    backoffLimit: 2
+    # Number of successful completions required
+    completions: 1
+    # Auto-cleanup completed jobs after specified seconds (optional)
+    ttlSecondsAfterFinished: 3600
+
 # Reconciliation Configuration
 reconciliation:
   intervalSeconds: 30
@@ -45,10 +50,10 @@ reconciliation:
 # Node Management Configuration
 nodeManagement:
   deleteFailedNodes: false
-  taints:
-    - key: node-ready/unverified
-      value: "true"
-      effect: NoSchedule
+  taints: []
+  #  - key: node-ready/unverified
+  #    value: "true"
+  #    effect: NoSchedule
   verifiedLabel:
     key: node-ready/verified
     value: "true"

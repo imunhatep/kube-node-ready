@@ -111,6 +111,7 @@ func main() {
 	probeAddr = fmt.Sprintf(":%d", cfg.Health.Port)
 
 	// Create manager
+	setupLog.Info("Creating k8s manager")
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme: scheme,
 		Metrics: metricsserver.Options{
@@ -129,12 +130,13 @@ func main() {
 	}
 
 	// Setup the NodeReconciler
+	setupLog.Info("Starting kube-node-ready node reconciler")
 	nodeReconciler := controller.NewNodeReconciler(
 		mgr.GetClient(),
 		mgr.GetScheme(),
 		cfg,
 	)
-	if err = nodeReconciler.SetupWithManager(mgr); err != nil {
+	if err = nodeReconciler.SetupWithManager(mgr, ctrl.Log.WithName("reconciler")); err != nil {
 		setupLog.Error(err, "Unable to create controller", "controller", "Node")
 		os.Exit(1)
 	}

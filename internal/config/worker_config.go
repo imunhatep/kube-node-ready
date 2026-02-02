@@ -20,17 +20,15 @@ type WorkerConfig struct {
 	// Internal field for YAML parsing
 	CheckTimeoutSeconds        int    `yaml:"checkTimeoutSeconds"`
 	InitialCheckTimeoutSeconds int    `yaml:"initialCheckTimeoutSeconds"`
-	MaxRetries                 int    `yaml:"maxRetries"`
-	RetryBackoff               string `yaml:"retryBackoff"`
+	MaxRetries                 int    `default:"1" yaml:"maxRetries"`
+	RetryBackoff               string `default:"linear" yaml:"retryBackoff"`
 
 	// Kubernetes service (from environment, not YAML)
 	KubernetesServiceHost string
 	KubernetesServicePort string
 
 	// Logging (from YAML, nested structure)
-	LogLevel  string        `yaml:"-"` // Populated from Logging.Level
-	LogFormat string        `yaml:"-"` // Populated from Logging.Format
-	Logging   LoggingConfig `yaml:"logging"`
+	Logging LoggingConfig `yaml:"logging"`
 
 	DryRun bool `yaml:"dryRun"`
 
@@ -63,19 +61,9 @@ func LoadWorkerConfigFromFile(configPath string) (*WorkerConfig, error) {
 	cfg.KubeconfigPath = getEnv("KUBECONFIG", "")
 	cfg.WorkerMode = true
 
-	// Extract logging fields from nested structure
-	cfg.LogLevel = cfg.Logging.Level
-	cfg.LogFormat = cfg.Logging.Format
-
 	// Apply defaults if not specified in file
 	if len(cfg.DNSTestDomains) == 0 {
 		cfg.DNSTestDomains = []string{"kubernetes.default.svc.cluster.local", "google.com"}
-	}
-	if cfg.LogLevel == "" {
-		cfg.LogLevel = "info"
-	}
-	if cfg.LogFormat == "" {
-		cfg.LogFormat = "json"
 	}
 
 	return cfg, nil
