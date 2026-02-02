@@ -10,38 +10,35 @@ import (
 
 // WorkerConfig holds configuration for the worker component
 type WorkerConfig struct {
-	// Node identification
+	// Node identification (from environment, not YAML)
 	NodeName string
 
-	// Check configuration
-	CheckTimeout   time.Duration
-	DNSTestDomains []string
-	ClusterDNSIP   string
+	// Check configuration (from YAML)
+	DNSTestDomains []string `yaml:"dnsTestDomains"`
+	ClusterDNSIP   string   `yaml:"clusterDnsIp"`
 
-	// Kubernetes service
+	// Internal field for YAML parsing
+	CheckTimeoutSeconds        int    `yaml:"checkTimeoutSeconds"`
+	InitialCheckTimeoutSeconds int    `yaml:"initialCheckTimeoutSeconds"`
+	MaxRetries                 int    `yaml:"maxRetries"`
+	RetryBackoff               string `yaml:"retryBackoff"`
+
+	// Kubernetes service (from environment, not YAML)
 	KubernetesServiceHost string
 	KubernetesServicePort string
 
-	// Logging
-	LogLevel  string
-	LogFormat string
+	// Logging (from YAML, nested structure)
+	LogLevel  string        `yaml:"-"` // Populated from Logging.Level
+	LogFormat string        `yaml:"-"` // Populated from Logging.Format
+	Logging   LoggingConfig `yaml:"logging"`
 
-	// Kubeconfig (for out-of-cluster testing)
+	DryRun bool `yaml:"dryRun"`
+
+	// Kubeconfig (from environment, not YAML)
 	KubeconfigPath string
 
-	// Worker mode specific
+	// Worker mode specific (not from YAML)
 	WorkerMode bool // Always true for worker
-}
-
-// workerConfigFile represents the YAML structure of the worker config file
-type workerConfigFile struct {
-	CheckTimeoutSeconds int      `yaml:"checkTimeoutSeconds"`
-	DNSTestDomains      []string `yaml:"dnsTestDomains"`
-	ClusterDNSIP        string   `yaml:"clusterDnsIp"`
-	Logging             struct {
-		Level  string `yaml:"level"`
-		Format string `yaml:"format"`
-	} `yaml:"logging"`
 }
 
 // LoadWorkerConfigFromFile loads worker configuration from a YAML file (ConfigMap mount)
@@ -53,35 +50,24 @@ func LoadWorkerConfigFromFile(configPath string) (*WorkerConfig, error) {
 		return nil, fmt.Errorf("failed to read worker config file: %w", err)
 	}
 
-	// Parse YAML
-	var fileCfg workerConfigFile
-	if err := yaml.Unmarshal(data, &fileCfg); err != nil {
+	// Parse YAML directly into WorkerConfig
+	cfg := &WorkerConfig{}
+	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse worker config file: %w", err)
 	}
 
-	// Build WorkerConfig from file + environment
-	cfg := &WorkerConfig{
-		// From environment (injected by controller/k8s)
-		NodeName:              getEnv("NODE_NAME", ""),
-		KubernetesServiceHost: getEnv("KUBERNETES_SERVICE_HOST", ""),
-		KubernetesServicePort: getEnv("KUBERNETES_SERVICE_PORT", "443"),
-		KubeconfigPath:        getEnv("KUBECONFIG", ""),
+	// Populate environment variables (injected by controller/k8s)
+	cfg.NodeName = getEnv("NODE_NAME", "")
+	cfg.KubernetesServiceHost = getEnv("KUBERNETES_SERVICE_HOST", "")
+	cfg.KubernetesServicePort = getEnv("KUBERNETES_SERVICE_PORT", "443")
+	cfg.KubeconfigPath = getEnv("KUBECONFIG", "")
+	cfg.WorkerMode = true
 
-		// From config file
-		CheckTimeout:   time.Duration(fileCfg.CheckTimeoutSeconds) * time.Second,
-		DNSTestDomains: fileCfg.DNSTestDomains,
-		ClusterDNSIP:   fileCfg.ClusterDNSIP,
-		LogLevel:       fileCfg.Logging.Level,
-		LogFormat:      fileCfg.Logging.Format,
-
-		// Worker mode
-		WorkerMode: true,
-	}
+	// Extract logging fields from nested structure
+	cfg.LogLevel = cfg.Logging.Level
+	cfg.LogFormat = cfg.Logging.Format
 
 	// Apply defaults if not specified in file
-	if cfg.CheckTimeout == 0 {
-		cfg.CheckTimeout = 10 * time.Second
-	}
 	if len(cfg.DNSTestDomains) == 0 {
 		cfg.DNSTestDomains = []string{"kubernetes.default.svc.cluster.local", "google.com"}
 	}
@@ -90,25 +76,6 @@ func LoadWorkerConfigFromFile(configPath string) (*WorkerConfig, error) {
 	}
 	if cfg.LogFormat == "" {
 		cfg.LogFormat = "json"
-	}
-
-	return cfg, nil
-}
-
-// LoadWorkerConfigFromEnv loads worker configuration from environment variables only
-// This is kept for backward compatibility and testing
-func LoadWorkerConfigFromEnv() (*WorkerConfig, error) {
-	cfg := &WorkerConfig{
-		NodeName:              getEnv("NODE_NAME", ""),
-		CheckTimeout:          getDurationEnv("CHECK_TIMEOUT", 10*time.Second),
-		DNSTestDomains:        getSliceEnv("DNS_TEST_DOMAINS", []string{"kubernetes.default.svc.cluster.local", "google.com"}),
-		ClusterDNSIP:          getEnv("CLUSTER_DNS_IP", ""),
-		KubernetesServiceHost: getEnv("KUBERNETES_SERVICE_HOST", ""),
-		KubernetesServicePort: getEnv("KUBERNETES_SERVICE_PORT", "443"),
-		LogLevel:              getEnv("LOG_LEVEL", "info"),
-		LogFormat:             getEnv("LOG_FORMAT", "json"),
-		KubeconfigPath:        getEnv("KUBECONFIG", ""),
-		WorkerMode:            true,
 	}
 
 	return cfg, nil
@@ -128,32 +95,31 @@ func (c *WorkerConfig) Validate() error {
 		return fmt.Errorf("DNS_TEST_DOMAINS must have at least one domain")
 	}
 
-	if c.CheckTimeout < 1*time.Second {
-		return fmt.Errorf("CHECK_TIMEOUT must be at least 1 second")
+	if c.CheckTimeoutSeconds < 1 {
+		return fmt.Errorf("checkTimeoutSeconds must be at least 1 second")
+	}
+
+	if c.MaxRetries < 1 {
+		return fmt.Errorf("maxRetries must be at least 1")
+	}
+
+	if c.InitialCheckTimeoutSeconds < 1 {
+		return fmt.Errorf("initialCheckTimeoutSeconds must be at least 1 second")
+	}
+
+	if c.RetryBackoff != "exponential" && c.RetryBackoff != "linear" {
+		return fmt.Errorf("retryBackoff must be 'exponential' or 'linear'")
 	}
 
 	return nil
 }
 
-// ToConfig converts WorkerConfig to the legacy Config format for compatibility
-// with existing checker code
-func (c *WorkerConfig) ToConfig() *Config {
-	return &Config{
-		NodeName:              c.NodeName,
-		CheckTimeout:          c.CheckTimeout,
-		DNSTestDomains:        c.DNSTestDomains,
-		ClusterDNSIP:          c.ClusterDNSIP,
-		KubernetesServiceHost: c.KubernetesServiceHost,
-		KubernetesServicePort: c.KubernetesServicePort,
-		LogLevel:              c.LogLevel,
-		LogFormat:             c.LogFormat,
-		KubeconfigPath:        c.KubeconfigPath,
-		// Worker-specific defaults (not used in worker mode)
-		InitialCheckTimeout: 300 * time.Second,
-		MaxRetries:          1, // Worker runs checks once
-		RetryBackoff:        RetryBackoffLinear,
-		MetricsEnabled:      false, // Workers don't expose metrics
-		DryRun:              false,
-		DeleteFailedNode:    false,
-	}
+// GetCheckTimeout returns CheckTimeoutSeconds as a time.Duration
+func (c *WorkerConfig) GetCheckTimeout() time.Duration {
+	return time.Duration(c.CheckTimeoutSeconds) * time.Second
+}
+
+// GetInitialCheckTimeout returns InitialCheckTimeoutSeconds as a time.Duration
+func (c *WorkerConfig) GetInitialCheckTimeout() time.Duration {
+	return time.Duration(c.InitialCheckTimeoutSeconds) * time.Second
 }

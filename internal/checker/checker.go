@@ -8,21 +8,20 @@ import (
 	"github.com/imunhatep/kube-node-ready/internal/metrics"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
-
-	"github.com/imunhatep/kube-node-ready/internal/config"
 )
 
 // Checker orchestrates all verification checks
 type Checker struct {
-	config            *config.Config
+	config            *CheckerConfig
 	dnsChecker        *DNSChecker
 	kubernetesChecker *KubernetesChecker
 	networkChecker    *NetworkChecker
 }
 
 // NewChecker creates a new checker orchestrator
-func NewChecker(cfg *config.Config, clientset *kubernetes.Clientset) *Checker {
+func NewChecker(cfg *CheckerConfig, clientset *kubernetes.Clientset) *Checker {
 	var kubernetesChecker *KubernetesChecker
+
 	if clientset != nil {
 		kubernetesChecker = NewKubernetesChecker(clientset, cfg.CheckTimeout)
 	}
@@ -175,7 +174,7 @@ func (c *Checker) RunWithRetry(ctx context.Context) error {
 }
 
 func (c *Checker) calculateBackoff(attempt int) time.Duration {
-	if c.config.RetryBackoff == config.RetryBackoffExponential {
+	if c.config.RetryBackoff == "exponential" {
 		// Exponential backoff: 1s, 2s, 4s, 8s, 16s
 		backoff := time.Duration(1<<uint(attempt-1)) * time.Second
 		// Cap at 300 seconds

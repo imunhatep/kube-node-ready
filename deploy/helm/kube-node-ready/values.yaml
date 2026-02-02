@@ -1,13 +1,31 @@
 # Default values for kube-node-ready
+nameOverride: ""
+fullnameOverride: ""
+
+imagePullSecrets: []
+
+priorityClassName: "system-node-critical"
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
 
 # Deployment mode: "controller" or "daemonset"
 # - controller: Controller manages worker pods dynamically (recommended for dynamic clusters)
 # - daemonset: DaemonSet runs on each node continuously (recommended for static clusters)
-deploymentMode: daemonset
+deploymentMode: controller
 
 # Controller configuration (only used when deploymentMode: controller)
 controller:
-  enabled: false  # Set to true to deploy the controller component (auto-set by deploymentMode)
   replicas: 1  # Set to 2+ for high availability
 
   # High availability configuration
@@ -19,7 +37,7 @@ controller:
 
   image:
     repository: ghcr.io/imunhatep/kube-node-ready
-    tag: "0.2.6"
+    #tag: "0.2.6"
     pullPolicy: IfNotPresent
 
   config:
@@ -40,11 +58,11 @@ controller:
           cpu: "50m"
           memory: "64Mi"
         limits:
-          cpu: "100m"  # Optional: can be omitted in loaded clusters to avoid throttling
           memory: "128Mi"  # Optional: recommended to prevent OOM issues
+
     # Reconciliation Configuration
     reconciliation:
-      intervalSeconds: 30  # Interval in seconds
+      intervalSeconds: 10  # Interval in seconds
       maxRetries: 5
       retryBackoff: exponential  # Options: exponential, linear
 
@@ -63,27 +81,26 @@ controller:
         key: node-ready/verified
         value: "true"
 
-    # Metrics Configuration
-    metrics:
-      enabled: true
-      port: 8080
+  metrics:
+    enabled: true
+    port: 8080
 
-      # Prometheus ServiceMonitor (requires Prometheus Operator)
-      serviceMonitor:
-        enabled: false  # Set to true to create ServiceMonitor
-        # namespace: monitoring  # Optional: namespace for ServiceMonitor (defaults to release namespace)
-        interval: 30s  # Scrape interval
-        scrapeTimeout: 10s  # Scrape timeout
-        labels: {}  # Additional labels for ServiceMonitor (e.g., for Prometheus selector)
-          # prometheus: kube-prometheus
-        annotations: {}  # Additional annotations
-        # relabelings: []  # Relabeling configs
-        # metricRelabelings: []  # Metric relabeling configs
-        # targetLabels: []  # Labels to transfer from service to metrics
+  # Prometheus ServiceMonitor (requires Prometheus Operator)
+  serviceMonitor:
+    enabled: false  # Set to true to create ServiceMonitor
+    # namespace: monitoring  # Optional: namespace for ServiceMonitor (defaults to release namespace)
+    interval: 30s  # Scrape interval
+    scrapeTimeout: 10s  # Scrape timeout
+    labels: {}  # Additional labels for ServiceMonitor (e.g., for Prometheus selector)
+      # prometheus: kube-prometheus
+    annotations: {}  # Additional annotations
+    # relabelings: []  # Relabeling configs
+    # metricRelabelings: []  # Metric relabeling configs
+    # targetLabels: []  # Labels to transfer from service to metrics
 
-    # Health Configuration
-    health:
-      port: 8081
+  # Health Configuration
+  health:
+    port: 8081
 
     # Logging Configuration
     logging:
@@ -123,7 +140,7 @@ controller:
 worker:
   config:
     # Check timeout for individual checks (DNS, network, K8s API)
-    checkTimeoutSeconds: 10
+    checkTimeoutSeconds: 5
 
     # DNS domains to test during node verification
     dnsTestDomains:
@@ -140,7 +157,24 @@ worker:
 
 # DaemonSet configuration (only used when deploymentMode: daemonset)
 daemonset:
-  enabled: false  # Auto-set by deploymentMode
+  # Common image configuration (used by both modes)
+  # Docker image repository
+  # Multi-arch image supporting: linux/amd64, linux/arm64
+  image:
+    repository: ghcr.io/imunhatep/kube-node-ready
+    tag: "0.2.6"
+    pullPolicy: IfNotPresent
+
+  nodeSelector: {}
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 100m  # Optional: can be omitted in loaded clusters to avoid throttling
+      memory: 128Mi  # Optional: recommended to prevent OOM issues
+
 
   updateStrategy:
     type: RollingUpdate
@@ -167,73 +201,37 @@ daemonset:
       key: node.kubernetes.io/unreachable
       operator: Exists
 
-# Common image configuration (used by both modes)
-  # Docker image repository
-  # Multi-arch image supporting: linux/amd64, linux/arm64
-  repository: ghcr.io/imunhatep/kube-node-ready
-  tag: "0.2.6"
-  pullPolicy: IfNotPresent
+  config:
+    initialTimeout: "300s"
+    checkTimeout: "10s"
+    maxRetries: 5
+    retryBackoff: "exponential"
+    dnsTestDomains:
+      - kubernetes.default.svc.cluster.local
+      - google.com
+    clusterDNSIP: ""
+    taintKey: "node-ready/unverified"
+    taintValue: "true"
+    taintEffect: "NoSchedule"
+    verifiedLabel: "node-ready/verified"
+    verifiedLabelValue: "true"
+    deleteFailedNode: false  # DANGEROUS: Delete nodes that fail verification (disabled by default)
+    enableMetrics: true
+    metricsPort: 8080
+    logLevel: "info"
+    logFormat: "json"
 
-imagePullSecrets: []
-nameOverride: ""
-fullnameOverride: ""
+  serviceAccount:
+    # Specifies whether a service account should be created
+    create: true
+    # Annotations to add to the service account
+    annotations: {}
+    # The name of the service account to use.
+    name: ""
 
-serviceAccount:
-  # Specifies whether a service account should be created
-  create: true
-  # Annotations to add to the service account
-  annotations: {}
-  # The name of the service account to use.
-  name: ""
+  podAnnotations: {}
 
-podAnnotations: {}
-
-podSecurityContext:
-  runAsNonRoot: true
-  runAsUser: 1000
-  fsGroup: 1000
-
-securityContext:
-  allowPrivilegeEscalation: false
-  readOnlyRootFilesystem: true
-  capabilities:
-    drop:
-    - ALL
-
-config:
-  initialTimeout: "300s"
-  checkTimeout: "10s"
-  maxRetries: 5
-  retryBackoff: "exponential"
-  dnsTestDomains:
-    - kubernetes.default.svc.cluster.local
-    - google.com
-  clusterDNSIP: ""
-  taintKey: "node-ready/unverified"
-  taintValue: "true"
-  taintEffect: "NoSchedule"
-  verifiedLabel: "node-ready/verified"
-  verifiedLabelValue: "true"
-  deleteFailedNode: false  # DANGEROUS: Delete nodes that fail verification (disabled by default)
-  enableMetrics: true
-  metricsPort: 8080
-  logLevel: "info"
-  logFormat: "json"
-
-resources:
-  requests:
-    cpu: 50m
-    memory: 64Mi
-  limits:
-    cpu: 100m  # Optional: can be omitted in loaded clusters to avoid throttling
-    memory: 128Mi  # Optional: recommended to prevent OOM issues
-
-nodeSelector: {}
-
-priorityClassName: "system-node-critical"
-
-
-# Metrics configuration
-metrics:
-  enabled: true
-  port: 8080
+  # Metrics configuration
+  metrics:
+    enabled: true
+    port: 8080

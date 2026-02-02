@@ -52,10 +52,10 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 Create the name of the service account to use
 */}}
 {{- define "kube-node-ready.serviceAccountName" -}}
-{{- if .Values.serviceAccount.create }}
-{{- default (include "kube-node-ready.fullname" .) .Values.serviceAccount.name }}
+{{- if .Values.daemonset.serviceAccount.create }}
+{{- default (include "kube-node-ready.fullname" .) .Values.daemonset.serviceAccount.name }}
 {{- else }}
-{{- default "default" .Values.serviceAccount.name }}
+{{- default "default" .Values.daemonset.serviceAccount.name }}
 {{- end }}
 {{- end }}
 

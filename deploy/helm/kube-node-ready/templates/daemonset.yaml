@@ -1,4 +1,4 @@
-{{- if or (eq .Values.deploymentMode "daemonset") .Values.daemonset.enabled }}
+{{- if (eq .Values.deploymentMode "daemonset") }}
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -18,14 +18,14 @@ spec:
     metadata:
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
-        {{- with .Values.podAnnotations }}
+        {{- with .Values.daemonset.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
       labels:
         {{- include "kube-node-ready.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: daemonset
     spec:
-      {{- with .Values.imagePullSecrets }}
+      {{- with .Values.daemonset.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -43,7 +43,7 @@ spec:
       tolerations:
         {{- toYaml .Values.daemonset.tolerations | nindent 8 }}
 
-      {{- with .Values.nodeSelector }}
+      {{- with .Values.daemonset.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -52,8 +52,8 @@ spec:
       - name: node-ready-checker
         securityContext:
           {{- toYaml .Values.securityContext | nindent 12 }}
-        image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
-        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        image: "{{ .Values.daemonset.image.repository }}:{{ .Values.daemonset.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.daemonset.image.pullPolicy }}
 
         env:
         # Node name from downward API
@@ -81,12 +81,12 @@ spec:
             name: {{ include "kube-node-ready.fullname" . }}
 
         resources:
-          {{- toYaml .Values.resources | nindent 12 }}
+          {{- toYaml .Values.daemonset.resources | nindent 12 }}
 
-        {{- if .Values.metrics.enabled }}
+        {{- if .Values.daemonset.metrics.enabled }}
         ports:
         - name: metrics
-          containerPort: {{ .Values.metrics.port }}
+          containerPort: {{ .Values.daemonset.metrics.port }}
           protocol: TCP
 
         livenessProbe:

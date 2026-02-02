@@ -38,8 +38,8 @@ Configuration:
   - Max retries: {{ .Values.controller.config.reconciliation.maxRetries }}
   - Verified label: {{ .Values.controller.config.nodeManagement.verifiedLabel.key }}
 {{- else }}
-  - Verified label: {{ .Values.config.verifiedLabel }}
-  - Taint key: {{ .Values.config.taintKey }}
+  - Verified label: {{ .Values.daemonset.config.verifiedLabel }}
+  - Taint key: {{ .Values.daemonset.config.taintKey }}
 {{- end }}
 
 To switch deployment modes:

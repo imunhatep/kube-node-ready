@@ -8,12 +8,10 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
-
-	"github.com/imunhatep/kube-node-ready/internal/config"
 )
 
 // CreateClient creates a Kubernetes client based on the configuration mode
-func CreateClient(cfg *config.Config) (*kubernetes.Clientset, error) {
+func CreateClient(cfg *ClientConfig) (*kubernetes.Clientset, error) {
 	if cfg.DryRun {
 		return createClientForDryRun(cfg)
 	}
@@ -40,7 +38,7 @@ func CreateClient(cfg *config.Config) (*kubernetes.Clientset, error) {
 
 // createClientForDryRun attempts to create a Kubernetes client for dry-run mode
 // Returns nil without error if kubeconfig is not available (graceful degradation)
-func createClientForDryRun(cfg *config.Config) (*kubernetes.Clientset, error) {
+func createClientForDryRun(cfg *ClientConfig) (*kubernetes.Clientset, error) {
 	kubeconfigPath := resolveKubeconfigPath(cfg.KubeconfigPath)
 
 	// Check if kubeconfig exists

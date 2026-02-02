@@ -57,21 +57,16 @@ func run() int {
 	var err error
 
 	// Try to load from file first (ConfigMap mount)
-	if _, statErr := os.Stat(configPath); statErr == nil {
-		klog.InfoS("Loading worker configuration from file", "path", configPath)
-		cfg, err = config.LoadWorkerConfigFromFile(configPath)
-		if err != nil {
-			klog.ErrorS(err, "Failed to load configuration from file")
-			return ExitConfigError
-		}
-	} else {
-		// Fallback to environment variables (for backward compatibility)
-		klog.InfoS("Configuration file not found, loading from environment variables", "path", configPath)
-		cfg, err = config.LoadWorkerConfigFromEnv()
-		if err != nil {
-			klog.ErrorS(err, "Failed to load configuration from environment")
-			return ExitConfigError
-		}
+	if _, statErr := os.Stat(configPath); statErr != nil {
+		klog.InfoS("Worker configuration file not found, falling back to environment variables", "path", configPath)
+		return ExitClientError
+	}
+
+	klog.InfoS("Loading worker configuration from file", "path", configPath)
+	cfg, err = config.LoadWorkerConfigFromFile(configPath)
+	if err != nil {
+		klog.ErrorS(err, "Failed to load configuration from file")
+		return ExitConfigError
 	}
 
 	// Validate configuration
@@ -82,16 +77,13 @@ func run() int {
 
 	klog.InfoS("Worker configuration loaded",
 		"nodeName", cfg.NodeName,
-		"namespace", cfg.Namespace,
-		"checkTimeout", cfg.CheckTimeout,
+		"checkTimeoutSeconds", cfg.CheckTimeoutSeconds,
 		"dnsTestDomains", cfg.DNSTestDomains,
 	)
 
-	// Convert to legacy Config format for compatibility with existing checker
-	legacyCfg := cfg.ToConfig()
-
-	// Create Kubernetes client
-	clientset, err := k8sclient.CreateClient(legacyCfg)
+	// Create Kubernetes client using adapter
+	clientCfg := config.NewClientConfigFromWorkerConfig(cfg)
+	clientset, err := k8sclient.CreateClient(clientCfg)
 	if err != nil {
 		klog.ErrorS(err, "Failed to create Kubernetes client")
 		return ExitClientError
@@ -116,8 +108,9 @@ func run() int {
 		cancel()
 	}()
 
-	// Create checker
-	chk := checker.NewChecker(legacyCfg, clientset)
+	// Create checker using adapter
+	checkerCfg := config.NewCheckerConfigFromWorkerConfig(cfg)
+	chk := checker.NewChecker(checkerCfg, clientset)
 
 	// Run verification checks (single attempt - no retries in worker mode)
 	klog.InfoS("Starting verification checks", "node", cfg.NodeName)

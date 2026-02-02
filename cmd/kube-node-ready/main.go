@@ -274,8 +274,9 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		}()
 	}
 
-	// Create Kubernetes client
-	clientset, err := k8sclient.CreateClient(cfg)
+	// Create Kubernetes client using adapter
+	clientCfg := config.NewClientConfigFromConfig(cfg)
+	clientset, err := k8sclient.CreateClient(clientCfg)
 	if err != nil {
 		return err
 	}
@@ -299,8 +300,9 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		cancel()
 	}()
 
-	// Create checker
-	chk := checker.NewChecker(cfg, clientset)
+	// Create checker using adapter
+	checkerCfg := config.NewCheckerConfigFromConfig(cfg)
+	chk := checker.NewChecker(checkerCfg, clientset)
 
 	// Run verification checks with retry
 	klog.Info("Starting verification checks")

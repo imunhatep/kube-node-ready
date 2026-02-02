@@ -3,7 +3,10 @@
 # It should be mounted into worker pods via a ConfigMap
 
 # Check Configuration
-checkTimeoutSeconds: 10  # Timeout for individual checks (DNS, network, K8s API) in seconds
+checkTimeoutSeconds: 5
+initialCheckTimeoutSeconds: 10
+maxRetries: 1
+retryBackoff: linear
 
 # DNS Check Configuration
 dnsTestDomains:
@@ -15,6 +18,7 @@ dnsTestDomains:
 # Optional: Cluster DNS IP address
 # If not specified, worker will use system default DNS
 clusterDnsIp: ""
+
 
 # Logging Configuration
 logging:

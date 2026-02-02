@@ -99,8 +99,6 @@ helm install kube-node-ready ./deploy/helm/kube-node-ready \
   --set deploymentMode=daemonset
 ```
 
-See [Deployment Mode Guide](docs/DEPLOYMENT_MODE_QUICKSTART.md) for detailed comparison.
-
 ### Configuration
 
 Controller mode uses a ConfigMap-based configuration. Key options:
