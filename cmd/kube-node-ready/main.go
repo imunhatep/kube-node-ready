@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/urfave/cli/v3"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 
 	"github.com/imunhatep/kube-node-ready/internal/checker"
@@ -325,8 +327,16 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		// Delete node if configured and not in dry-run mode
 		if cfg.DeleteFailedNode && !cfg.DryRun && clientset != nil {
 			klog.InfoS("DeleteFailedNode is enabled, deleting node", "node", cfg.NodeName)
-			nodeManager := node.NewManager(cfg, clientset, dynamicClient)
-			if deleteErr := nodeManager.DeleteNode(context.Background()); deleteErr != nil {
+
+			// Get the node entity first
+			nodeEntity, getErr := clientset.CoreV1().Nodes().Get(context.Background(), cfg.NodeName, metav1.GetOptions{})
+			if getErr != nil {
+				klog.ErrorS(getErr, "Failed to get node for deletion", "node", cfg.NodeName)
+				return fmt.Errorf("verification failed and failed to get node for deletion: %w (original error: %v)", getErr, err)
+			}
+
+			nodeManager := node.NewManager(clientset, dynamicClient)
+			if deleteErr := nodeManager.DeleteNode(context.Background(), nodeEntity); deleteErr != nil {
 				klog.ErrorS(deleteErr, "Failed to delete node after verification failure")
 				return fmt.Errorf("verification failed and node deletion failed: %w (original error: %v)", deleteErr, err)
 			}
@@ -349,8 +359,29 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		klog.Info("No Kubernetes client available: skipping node updates")
 	} else {
 		klog.Info("Updating node status")
-		nodeManager := node.NewManager(cfg, clientset, dynamicClient)
-		if err := nodeManager.RemoveTaintAndAddLabel(context.Background()); err != nil {
+
+		// Get the node entity first
+		nodeEntity, getErr := clientset.CoreV1().Nodes().Get(context.Background(), cfg.NodeName, metav1.GetOptions{})
+		if getErr != nil {
+			klog.ErrorS(getErr, "Failed to get node for updating", "node", cfg.NodeName)
+			return fmt.Errorf("failed to get node for updating: %w", getErr)
+		}
+
+		// Prepare taints to remove and labels to add
+		taintsToRemove := []corev1.Taint{
+			{
+				Key:    cfg.TaintKey,
+				Value:  cfg.TaintValue,
+				Effect: corev1.TaintEffect(cfg.TaintEffect),
+			},
+		}
+
+		labelsToAdd := map[string]string{
+			cfg.VerifiedLabel: cfg.VerifiedLabelValue,
+		}
+
+		nodeManager := node.NewManager(clientset, dynamicClient)
+		if err := nodeManager.UpdateNodeMetadata(context.Background(), nodeEntity, taintsToRemove, labelsToAdd); err != nil {
 			klog.ErrorS(err, "Failed to update node")
 			return fmt.Errorf("failed to update node: %w", err)
 		}

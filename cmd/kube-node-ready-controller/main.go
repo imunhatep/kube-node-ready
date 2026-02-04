@@ -8,6 +8,8 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -18,6 +20,7 @@ import (
 	"github.com/imunhatep/kube-node-ready/internal/config"
 	"github.com/imunhatep/kube-node-ready/internal/controller"
 	"github.com/imunhatep/kube-node-ready/internal/metrics"
+	"github.com/imunhatep/kube-node-ready/internal/node"
 )
 
 var (
@@ -129,12 +132,32 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Create Kubernetes and dynamic clients for NodeManager
+	setupLog.Info("Creating Kubernetes clients for node operations")
+	k8sConfig := mgr.GetConfig()
+
+	clientset, err := kubernetes.NewForConfig(k8sConfig)
+	if err != nil {
+		setupLog.Error(err, "Unable to create Kubernetes clientset")
+		os.Exit(1)
+	}
+
+	dynamicClient, err := dynamic.NewForConfig(k8sConfig)
+	if err != nil {
+		setupLog.Error(err, "Unable to create dynamic client")
+		os.Exit(1)
+	}
+
+	// Create NodeManager for handling node operations
+	nodeManager := node.NewManager(clientset, dynamicClient)
+
 	// Setup the NodeReconciler
 	setupLog.Info("Starting kube-node-ready node reconciler")
 	nodeReconciler := controller.NewNodeReconciler(
 		mgr.GetClient(),
 		mgr.GetScheme(),
 		cfg,
+		nodeManager,
 	)
 	if err = nodeReconciler.SetupWithManager(mgr, ctrl.Log.WithName("reconciler")); err != nil {
 		setupLog.Error(err, "Unable to create controller", "controller", "Node")

@@ -125,7 +125,7 @@ controller:
       qps: 50
       burst: 100
 
-    # Worker Pod Configuration
+    # Worker Pod Configuration (passed to controller via ConfigMap)
     worker:
       image:
         repository: ghcr.io/imunhatep/kube-node-ready
@@ -134,8 +134,9 @@ controller:
       # Note: namespace is auto-detected from controller's environment
       # Uncomment to override (defaults to controller's namespace)
       # namespace: kube-system
+      # Uncomment to override (defaults to worker's serviceAccountname)
+      # serviceAccountName: kube-node-ready-worker
       timeoutSeconds: 300  # Timeout in seconds
-      serviceAccount: ""  # Optional: defaults to namespace default SA
       priorityClassName: system-node-critical
       resources:
         requests:
@@ -143,7 +144,6 @@ controller:
           memory: "64Mi"
         limits:
           memory: "128Mi"  # Optional: recommended to prevent OOM issues
-
       # Job Configuration (optional - provides better reliability and auto-retry)
       job:
         # Job timeout - if not specified, falls back to timeoutSeconds above
@@ -157,12 +157,25 @@ controller:
         # Auto-cleanup completed jobs after specified seconds (optional)
         # ttlSecondsAfterFinished: 600
 
-# Worker configuration (used by controller mode)
-# This configuration is mounted into worker pods via ConfigMap
+# Worker Helm resource configuration (for generating Kubernetes resources)
+# This section controls what Kubernetes resources are created by Helm
 worker:
+  # Service account configuration for worker pods
+  serviceAccount:
+    # Specifies whether a service account should be created for worker pods
+    create: true
+    # Annotations to add to the service account
+    annotations: {}
+    # The name of the service account to use.
+    # If not set and create is true, a name is generated using the fullname template
+    name: ""
+
+  # Worker runtime configuration (mounted into worker pods via ConfigMap)
+  # This configuration is used by worker pods when they execute
   config:
     # Worker runtime configuration
     maxRetries: 1
+    retryBackoff: linear  # Options: exponential, linear
 
     # Check timeout for individual checks (DNS, network, K8s API)
     checkTimeoutSeconds: 5

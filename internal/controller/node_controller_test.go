@@ -14,6 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/imunhatep/kube-node-ready/internal/config"
+	"github.com/imunhatep/kube-node-ready/internal/node"
 )
 
 func setupTestNodeReconciler(t *testing.T) (*NodeReconciler, client.Client, *config.ControllerConfig) {
@@ -34,8 +35,8 @@ func setupTestNodeReconciler(t *testing.T) (*NodeReconciler, client.Client, *con
 				Completions:             int32Ptr(1),
 				TTLSecondsAfterFinished: int32Ptr(600),
 			},
-			ServiceAccount:    "test-sa",
-			PriorityClassName: "system-node-critical",
+			ServiceAccountName: "test-sa",
+			PriorityClassName:  "system-node-critical",
 			Resources: config.ResourcesConfig{
 				Requests: config.ResourceRequirements{
 					CPU:    "50m",
@@ -70,7 +71,12 @@ func setupTestNodeReconciler(t *testing.T) (*NodeReconciler, client.Client, *con
 	}
 
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-	reconciler := NewNodeReconciler(fakeClient, scheme, cfg)
+
+	// Create a mock NodeManager - passing nil clients for testing
+	// In real tests, you might want to use mock clients, but for basic functionality testing nil is ok
+	mockNodeManager := node.NewManager(nil, nil)
+
+	reconciler := NewNodeReconciler(fakeClient, scheme, cfg, mockNodeManager)
 
 	return reconciler, fakeClient, cfg
 }

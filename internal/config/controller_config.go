@@ -21,13 +21,13 @@ type JobConfig struct {
 // This only includes pod scheduling and lifecycle configuration.
 // Worker runtime configuration (checks, DNS, etc.) is managed via separate worker ConfigMap.
 type WorkerPodConfig struct {
-	Image             ImageConfig     `yaml:"image"`
-	Namespace         string          `yaml:"namespace"`
-	ServiceAccount    string          `yaml:"serviceAccount"`
-	PriorityClassName string          `yaml:"priorityClassName"`
-	Resources         ResourcesConfig `yaml:"resources"`
-	ConfigMapName     string          `yaml:"configMapName"` // Name of worker ConfigMap to mount
-	Job               JobConfig       `yaml:"job"`           // Job-specific configuration
+	Image              ImageConfig     `yaml:"image"`
+	Namespace          string          `yaml:"namespace"`
+	ServiceAccountName string          `yaml:"serviceAccountName"`
+	PriorityClassName  string          `yaml:"priorityClassName"`
+	Resources          ResourcesConfig `yaml:"resources"`
+	ConfigMapName      string          `yaml:"configMapName"` // Name of worker ConfigMap to mount
+	Job                JobConfig       `yaml:"job"`           // Job-specific configuration
 }
 
 // GetTimeout returns timeout as time.Duration
@@ -180,6 +180,10 @@ func (c *ControllerConfig) Validate() error {
 	}
 	if c.Health.Port < 1 || c.Health.Port > 65535 {
 		return fmt.Errorf("health.port must be between 1 and 65535")
+	}
+
+	if c.Worker.ServiceAccountName == "" {
+		return fmt.Errorf("worker.serviceAccountName is required")
 	}
 
 	// Required: at least one taint must be configured

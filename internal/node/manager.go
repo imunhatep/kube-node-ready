@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	nodeconfig "github.com/imunhatep/kube-node-ready/internal/config"
 	"github.com/imunhatep/kube-node-ready/internal/metrics"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -17,58 +16,64 @@ import (
 	"k8s.io/klog/v2"
 )
 
-// Controller handles node operations
+// Manager handles node operations
 type Manager struct {
-	config        *nodeconfig.Config
 	clientset     *kubernetes.Clientset
 	dynamicClient dynamic.Interface
 }
 
 // NewManager creates a new node manager
-func NewManager(cfg *nodeconfig.Config, clientset *kubernetes.Clientset, dynamicClient dynamic.Interface) *Manager {
+func NewManager(clientset *kubernetes.Clientset, dynamicClient dynamic.Interface) *Manager {
 	return &Manager{
-		config:        cfg,
 		clientset:     clientset,
 		dynamicClient: dynamicClient,
 	}
 }
 
-// RemoveTaintAndAddLabel removes the verification taint and adds the verified label
-func (m *Manager) RemoveTaintAndAddLabel(ctx context.Context) error {
-	klog.InfoS("Updating node after successful verification",
-		"node", m.config.NodeName,
-		"taintKey", m.config.TaintKey,
-		"label", m.config.VerifiedLabel,
-	)
-
-	// Get the current node
-	node, err := m.clientset.CoreV1().Nodes().Get(ctx, m.config.NodeName, metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to get node: %w", err)
+// UpdateNodeMetadata removes specified taints and adds specified labels to a node
+func (m *Manager) UpdateNodeMetadata(ctx context.Context, node *corev1.Node, taintsToRemove []corev1.Taint, labelsToAdd map[string]string) error {
+	if m.clientset == nil {
+		return fmt.Errorf("kubernetes client not available")
 	}
+
+	nodeName := node.Name
+	klog.InfoS("Updating node taints and labels",
+		"node", nodeName,
+		"taintsToRemove", len(taintsToRemove),
+		"labelsToAdd", len(labelsToAdd),
+	)
 
 	// Create patch operations
 	patches := []patchOperation{}
 
-	// Find and remove the taint
-	taintIndex := m.findTaintIndex(node.Spec.Taints)
-	if taintIndex >= 0 {
-		klog.InfoS("Found taint to remove", "index", taintIndex)
-		patches = append(patches, patchOperation{
-			Op:   "remove",
-			Path: fmt.Sprintf("/spec/taints/%d", taintIndex),
-		})
-	} else {
-		klog.InfoS("Taint not found on node", "taintKey", m.config.TaintKey)
+	// Remove specified taints
+	for _, taintToRemove := range taintsToRemove {
+		taintIndex := m.findTaintIndex(node.Spec.Taints, taintToRemove.Key)
+		if taintIndex >= 0 {
+			klog.InfoS("Found taint to remove", "taintKey", taintToRemove.Key, "index", taintIndex)
+			patches = append(patches, patchOperation{
+				Op:   "remove",
+				Path: fmt.Sprintf("/spec/taints/%d", taintIndex),
+			})
+		} else {
+			klog.InfoS("Taint not found on node", "taintKey", taintToRemove.Key, "node", nodeName)
+		}
 	}
 
-	// Add the verified label
-	labelPath := "/metadata/labels/" + escapeLabelKey(m.config.VerifiedLabel)
-	patches = append(patches, patchOperation{
-		Op:    "add",
-		Path:  labelPath,
-		Value: m.config.VerifiedLabelValue,
-	})
+	// Add specified labels
+	for key, value := range labelsToAdd {
+		labelPath := "/metadata/labels/" + escapeLabelKey(key)
+		patches = append(patches, patchOperation{
+			Op:    "add",
+			Path:  labelPath,
+			Value: value,
+		})
+	}
+
+	if len(patches) == 0 {
+		klog.InfoS("No patches to apply", "node", nodeName)
+		return nil
+	}
 
 	// Apply the patch
 	patchBytes, err := json.Marshal(patches)
@@ -76,13 +81,12 @@ func (m *Manager) RemoveTaintAndAddLabel(ctx context.Context) error {
 		return fmt.Errorf("failed to marshal patch: %w", err)
 	}
 
-	klog.InfoS("Applying patch to node", "patch", string(patchBytes))
+	klog.InfoS("Applying patch to node", "node", nodeName, "patch", string(patchBytes))
 
-	// Remove taint with metrics
 	start := time.Now()
 	_, err = m.clientset.CoreV1().Nodes().Patch(
 		ctx,
-		m.config.NodeName,
+		nodeName,
 		types.JSONPatchType,
 		patchBytes,
 		metav1.PatchOptions{},
@@ -90,27 +94,28 @@ func (m *Manager) RemoveTaintAndAddLabel(ctx context.Context) error {
 	duration := time.Since(start)
 
 	if err != nil {
-		metrics.NodeTaintRemovalTotal.WithLabelValues(m.config.NodeName, "failure").Inc()
-		metrics.NodeLabelAddTotal.WithLabelValues(m.config.NodeName, "failure").Inc()
+		metrics.NodeTaintRemovalTotal.WithLabelValues(nodeName, "failure").Inc()
+		metrics.NodeLabelAddTotal.WithLabelValues(nodeName, "failure").Inc()
 		return fmt.Errorf("failed to patch node: %w", err)
 	}
 
-	metrics.NodeUpdateDuration.WithLabelValues(m.config.NodeName, "label_add").Observe(duration.Seconds())
-	metrics.NodeUpdateDuration.WithLabelValues(m.config.NodeName, "taint_removal").Observe(duration.Seconds())
-	metrics.NodeLabelAddTotal.WithLabelValues(m.config.NodeName, "success").Inc()
+	metrics.NodeUpdateDuration.WithLabelValues(nodeName, "label_add").Observe(duration.Seconds())
+	metrics.NodeUpdateDuration.WithLabelValues(nodeName, "taint_removal").Observe(duration.Seconds())
+	metrics.NodeLabelAddTotal.WithLabelValues(nodeName, "success").Inc()
 
 	klog.InfoS("Successfully updated node",
-		"node", m.config.NodeName,
-		"label", m.config.VerifiedLabel,
+		"node", nodeName,
+		"taintsRemoved", len(taintsToRemove),
+		"labelsAdded", len(labelsToAdd),
 	)
 
 	return nil
 }
 
-// findTaintIndex finds the index of the verification taint
-func (m *Manager) findTaintIndex(taints []corev1.Taint) int {
+// findTaintIndex finds the index of a taint with the specified key
+func (m *Manager) findTaintIndex(taints []corev1.Taint, taintKey string) int {
 	for i, taint := range taints {
-		if taint.Key == m.config.TaintKey {
+		if taint.Key == taintKey {
 			return i
 		}
 	}
@@ -151,7 +156,7 @@ func getNodeClaimGVR() schema.GroupVersionResource {
 }
 
 // findNodeClaimForNode finds the NodeClaim that corresponds to the given node
-func (m *Manager) findNodeClaimForNode(ctx context.Context) (string, error) {
+func (m *Manager) findNodeClaimForNode(ctx context.Context, node *corev1.Node) (string, error) {
 	if m.dynamicClient == nil {
 		return "", fmt.Errorf("dynamic client not available")
 	}
@@ -169,7 +174,7 @@ func (m *Manager) findNodeClaimForNode(ctx context.Context) (string, error) {
 	// Find the NodeClaim that corresponds to our node
 	for _, item := range nodeClaims.Items {
 		// Check if the NodeClaim has a status.nodeName field that matches our node
-		if status, found, err := getNestedString(item.Object, "status", "nodeName"); err == nil && found && status == m.config.NodeName {
+		if status, found, err := getNestedString(item.Object, "status", "nodeName"); err == nil && found && status == node.Name {
 			return item.GetName(), nil
 		}
 
@@ -186,7 +191,7 @@ func (m *Manager) findNodeClaimForNode(ctx context.Context) (string, error) {
 }
 
 // deleteNodeClaim deletes the specified NodeClaim
-func (m *Manager) deleteNodeClaim(ctx context.Context, nodeClaimName string) error {
+func (m *Manager) deleteNodeClaim(ctx context.Context, node *corev1.Node, nodeClaimName string) error {
 	if m.dynamicClient == nil {
 		return fmt.Errorf("dynamic client not available")
 	}
@@ -195,7 +200,7 @@ func (m *Manager) deleteNodeClaim(ctx context.Context, nodeClaimName string) err
 
 	klog.InfoS("Deleting NodeClaim for failed node",
 		"nodeClaim", nodeClaimName,
-		"node", m.config.NodeName,
+		"node", node.Name,
 	)
 
 	start := time.Now()
@@ -209,7 +214,7 @@ func (m *Manager) deleteNodeClaim(ctx context.Context, nodeClaimName string) err
 	if err != nil {
 		klog.ErrorS(err, "Failed to delete NodeClaim",
 			"nodeClaim", nodeClaimName,
-			"node", m.config.NodeName,
+			"node", node.Name,
 			"duration", duration,
 		)
 		return fmt.Errorf("failed to delete NodeClaim %s: %w", nodeClaimName, err)
@@ -217,7 +222,7 @@ func (m *Manager) deleteNodeClaim(ctx context.Context, nodeClaimName string) err
 
 	klog.InfoS("Successfully deleted NodeClaim, node should be terminated by Karpenter",
 		"nodeClaim", nodeClaimName,
-		"node", m.config.NodeName,
+		"node", node.Name,
 		"duration", duration,
 	)
 
@@ -257,21 +262,23 @@ func getNestedString(obj map[string]interface{}, fields ...string) (string, bool
 // DeleteNode deletes the node from the cluster
 // First attempts to delete associated Karpenter NodeClaim if it exists,
 // falls back to direct node deletion if no NodeClaim is found
-func (m *Manager) DeleteNode(ctx context.Context) error {
+func (m *Manager) DeleteNode(ctx context.Context, node *corev1.Node) error {
+	nodeName := node.Name
+
 	// First, try to find and delete the associated NodeClaim
-	nodeClaimName, err := m.findNodeClaimForNode(ctx)
+	nodeClaimName, err := m.findNodeClaimForNode(ctx, node)
 	if err != nil {
 		klog.InfoS("Error finding NodeClaim, falling back to direct node deletion",
-			"node", m.config.NodeName,
+			"node", nodeName,
 			"error", err,
 		)
 	} else if nodeClaimName != "" {
 		// Found a NodeClaim, delete it instead of the node directly
-		err = m.deleteNodeClaim(ctx, nodeClaimName)
+		err = m.deleteNodeClaim(ctx, node, nodeClaimName)
 		if err != nil {
 			klog.ErrorS(err, "Failed to delete NodeClaim, falling back to direct node deletion",
 				"nodeClaim", nodeClaimName,
-				"node", m.config.NodeName,
+				"node", nodeName,
 			)
 			// Continue to direct node deletion as fallback
 		} else {
@@ -280,35 +287,35 @@ func (m *Manager) DeleteNode(ctx context.Context) error {
 		}
 	} else {
 		klog.InfoS("No NodeClaim found for node, proceeding with direct node deletion",
-			"node", m.config.NodeName,
+			"node", nodeName,
 		)
 	}
 
 	// Fallback: delete the node directly
 	klog.InfoS("Deleting failed node directly",
-		"node", m.config.NodeName,
+		"node", nodeName,
 	)
 
 	start := time.Now()
 	err = m.clientset.CoreV1().Nodes().Delete(
 		ctx,
-		m.config.NodeName,
+		nodeName,
 		metav1.DeleteOptions{},
 	)
 	duration := time.Since(start)
 
 	if err != nil {
-		metrics.NodeDeletionTotal.WithLabelValues(m.config.NodeName, "failure").Inc()
+		metrics.NodeDeletionTotal.WithLabelValues(nodeName, "failure").Inc()
 		klog.ErrorS(err, "Failed to delete node",
-			"node", m.config.NodeName,
+			"node", nodeName,
 			"duration", duration,
 		)
 		return fmt.Errorf("failed to delete node: %w", err)
 	}
 
-	metrics.NodeDeletionTotal.WithLabelValues(m.config.NodeName, "success").Inc()
+	metrics.NodeDeletionTotal.WithLabelValues(nodeName, "success").Inc()
 	klog.InfoS("Successfully deleted node",
-		"node", m.config.NodeName,
+		"node", nodeName,
 		"duration", duration,
 	)
 

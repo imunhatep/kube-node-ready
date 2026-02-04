@@ -13,8 +13,10 @@ data:
     # This file is mounted into worker pods and used by workers to perform node verification
     # Worker Runtime Configuration
     maxRetries: {{ .Values.worker.config.maxRetries }}
+    retryBackoff: {{ .Values.worker.config.retryBackoff | quote }}
 
     # Check Configuration
+    initialCheckTimeoutSeconds: {{ .Values.worker.config.initialCheckTimeoutSeconds }}
     checkTimeoutSeconds: {{ .Values.worker.config.checkTimeoutSeconds }}
 
     # DNS Check Configuration

@@ -218,7 +218,7 @@ func (w *WorkerManager) CreateWorkerJob(ctx context.Context, nodeName string) (*
 				},
 				Spec: corev1.PodSpec{
 					RestartPolicy:      corev1.RestartPolicyNever,
-					ServiceAccountName: w.config.Worker.ServiceAccount,
+					ServiceAccountName: w.config.Worker.ServiceAccountName,
 					PriorityClassName:  w.config.Worker.PriorityClassName,
 					NodeSelector: map[string]string{
 						"kubernetes.io/hostname": nodeName,

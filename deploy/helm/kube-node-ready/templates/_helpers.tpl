@@ -70,4 +70,15 @@ Create the name of the controller service account to use
 {{- end }}
 {{- end }}
 
+{{/*
+Create the name of the worker service account to use
+*/}}
+{{- define "kube-node-ready.workerServiceAccountName" -}}
+{{- if .Values.worker.serviceAccount.create }}
+{{- default (printf "%s-worker" (include "kube-node-ready.fullname" .)) .Values.worker.serviceAccount.name }}
+{{- else }}
+{{- default "default" .Values.worker.serviceAccount.name }}
+{{- end }}
+{{- end }}
+
 

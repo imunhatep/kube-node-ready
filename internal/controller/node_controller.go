@@ -15,6 +15,7 @@ import (
 
 	"github.com/imunhatep/kube-node-ready/internal/config"
 	"github.com/imunhatep/kube-node-ready/internal/metrics"
+	"github.com/imunhatep/kube-node-ready/internal/node"
 )
 
 // NodeReconciler reconciles Node objects
@@ -24,16 +25,18 @@ type NodeReconciler struct {
 	Config        *config.ControllerConfig
 	StateCache    *StateCache
 	WorkerManager *WorkerManager
+	NodeManager   *node.Manager
 }
 
 // NewNodeReconciler creates a new NodeReconciler
-func NewNodeReconciler(client client.Client, scheme *runtime.Scheme, cfg *config.ControllerConfig) *NodeReconciler {
+func NewNodeReconciler(client client.Client, scheme *runtime.Scheme, cfg *config.ControllerConfig, nodeManager *node.Manager) *NodeReconciler {
 	return &NodeReconciler{
 		Client:        client,
 		Scheme:        scheme,
 		Config:        cfg,
 		StateCache:    NewStateCache(),
 		WorkerManager: NewWorkerManager(client, cfg),
+		NodeManager:   nodeManager,
 	}
 }
 
@@ -213,6 +216,26 @@ func (r *NodeReconciler) handleInProgress(ctx context.Context, node *corev1.Node
 		// Success - mark as verified
 		klog.InfoS("Verification successful, marking node as verified", "node", node.Name)
 
+		// Use NodeManager to remove taints and add labels
+		taintsToRemove := []corev1.Taint{}
+		for _, taint := range r.Config.NodeManagement.Taints {
+			taintsToRemove = append(taintsToRemove, corev1.Taint{
+				Key:    taint.Key,
+				Value:  taint.Value,
+				Effect: corev1.TaintEffect(taint.Effect),
+			})
+		}
+
+		labelsToAdd := map[string]string{
+			r.Config.NodeManagement.VerifiedLabel.Key: r.Config.NodeManagement.VerifiedLabel.Value,
+		}
+
+		if err := r.NodeManager.UpdateNodeMetadata(ctx, node, taintsToRemove, labelsToAdd); err != nil {
+			klog.ErrorS(err, "Failed to update node after successful verification", "node", node.Name)
+			metrics.RecordReconciliationError(node.Name, "node_update_error")
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, err
+		}
+
 		state.State = StateVerified
 		now := time.Now()
 		state.VerifiedAt = &now
@@ -290,7 +313,7 @@ func (r *NodeReconciler) handleFailed(ctx context.Context, node *corev1.Node, st
 	if r.Config.NodeManagement.DeleteFailedNodes {
 		klog.InfoS("Deleting failed node", "node", node.Name)
 
-		if err := r.Client.Delete(ctx, node); err != nil {
+		if err := r.NodeManager.DeleteNode(ctx, node); err != nil {
 			klog.ErrorS(err, "Failed to delete node", "node", node.Name)
 			metrics.RecordReconciliationError(node.Name, "node_deletion_error")
 			metrics.RecordReconciliation("error")
@@ -313,6 +336,7 @@ func (r *NodeReconciler) handleFailed(ctx context.Context, node *corev1.Node, st
 // handleVerified processes verified nodes (should not normally be called due to predicate filtering)
 func (r *NodeReconciler) handleVerified(ctx context.Context, node *corev1.Node, state *NodeState) (ctrl.Result, error) {
 	klog.InfoS("Node is verified", "node", node.Name)
+
 	metrics.RecordReconciliation("already_verified")
 	// Nothing to do
 	return ctrl.Result{}, nil

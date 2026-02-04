@@ -17,9 +17,7 @@ data:
         pullPolicy: {{ .Values.controller.config.worker.image.pullPolicy }}
       namespace: {{ .Values.controller.config.worker.namespace }}
       timeoutSeconds: {{ .Values.controller.config.worker.timeoutSeconds }}
-      {{- if .Values.controller.config.worker.serviceAccount }}
-      serviceAccount: {{ .Values.controller.config.worker.serviceAccount | quote }}
-      {{- end }}
+      serviceAccountName: {{ .Values.controller.config.worker.serviceAccountName | default (include "kube-node-ready.workerServiceAccountName" .) | quote }}
       priorityClassName: {{ .Values.controller.config.worker.priorityClassName | quote }}
       resources:
         requests:

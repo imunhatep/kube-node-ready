@@ -11,7 +11,7 @@ worker:
     pullPolicy: Never # IfNotPresent
 
   # Optional: Service account for worker pods (defaults to namespace default)
-  serviceAccount: ""
+  serviceAccountName: "kube-node-ready-worker"
 
   # Priority class for worker pods
   priorityClassName: system-node-critical
@@ -43,9 +43,9 @@ worker:
 
 # Reconciliation Configuration
 reconciliation:
-  intervalSeconds: 30
+  intervalSeconds: 10
   maxRetries: 5
-  retryBackoff: exponential
+  retryBackoff: linear # exponential
 
 # Node Management Configuration
 nodeManagement:
