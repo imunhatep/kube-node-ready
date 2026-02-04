@@ -44,15 +44,20 @@ func NewWorkerManager(client client.Client, cfg *config.ControllerConfig) *Worke
 }
 
 // detectNamespace determines the namespace where worker jobs should be created
-// Priority: 1. POD_NAMESPACE env var, 2. Service account namespace file, 3. Config, 4. Default
 func detectNamespace(cfg *config.ControllerConfig) string {
-	// 1. Try POD_NAMESPACE environment variable (injected by Kubernetes downward API)
+	// 1. Try config if explicitly set (backwards compatibility)
+	if cfg.Worker.Namespace != "" {
+		klog.V(2).InfoS("Using namespace from config", "namespace", cfg.Worker.Namespace)
+		return cfg.Worker.Namespace
+	}
+
+	// 2. Try POD_NAMESPACE environment variable (injected by Kubernetes downward API)
 	if ns := os.Getenv("POD_NAMESPACE"); ns != "" {
 		klog.V(2).InfoS("Using namespace from POD_NAMESPACE env var", "namespace", ns)
 		return ns
 	}
 
-	// 2. Try reading from service account namespace file (in-cluster)
+	// 3. Try reading from service account namespace file (in-cluster)
 	if data, err := os.ReadFile(namespaceFile); err == nil {
 		ns := string(data)
 		if ns != "" {
@@ -61,15 +66,9 @@ func detectNamespace(cfg *config.ControllerConfig) string {
 		}
 	}
 
-	// 3. Try config if explicitly set (backwards compatibility)
-	if cfg.Worker.Namespace != "" {
-		klog.V(2).InfoS("Using namespace from config", "namespace", cfg.Worker.Namespace)
-		return cfg.Worker.Namespace
-	}
-
-	// 4. Default to kube-system
-	klog.V(2).InfoS("Using default namespace", "namespace", "kube-system")
-	return "kube-system"
+	// 4. Default to default namespace
+	klog.V(2).InfoS("Using default namespace", "namespace", "default")
+	return "default"
 }
 
 // buildWorkerEnvVars constructs environment variables for worker jobs
