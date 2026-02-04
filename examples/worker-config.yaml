@@ -1,0 +1,29 @@
+# Kube Node Ready Worker Configuration
+# This file is used by worker pods to perform node verification checks
+# It should be mounted into worker pods via a ConfigMap
+
+# Check Configuration
+checkTimeoutSeconds: 5
+initialCheckTimeoutSeconds: 10
+maxRetries: 1
+retryBackoff: linear
+
+# DNS Check Configuration
+dnsTestDomains:
+  - kubernetes.default.svc.cluster.local
+  - google.com
+  # Add more domains to test DNS resolution
+  # - internal-service.namespace.svc.cluster.local
+
+# Optional: Cluster DNS IP address
+# If not specified, worker will use system default DNS
+clusterDnsIp: ""
+
+
+# Logging Configuration
+logging:
+  # Log level: debug, info, warn, error
+  level: info
+
+  # Log format: json, console
+  format: json

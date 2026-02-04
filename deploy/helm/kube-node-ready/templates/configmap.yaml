@@ -1,3 +1,4 @@
+{{- if (eq .Values.deploymentMode "daemonset") }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -6,20 +7,22 @@ metadata:
   labels:
     {{- include "kube-node-ready.labels" . | nindent 4 }}
 data:
-  INITIAL_TIMEOUT: {{ .Values.config.initialTimeout | quote }}
-  CHECK_TIMEOUT: {{ .Values.config.checkTimeout | quote }}
-  MAX_RETRIES: {{ .Values.config.maxRetries | quote }}
-  RETRY_BACKOFF: {{ .Values.config.retryBackoff | quote }}
-  DNS_TEST_DOMAINS: {{ join "," .Values.config.dnsTestDomains | quote }}
-  {{- if .Values.config.clusterDNSIP }}
-  CLUSTER_DNS_IP: {{ .Values.config.clusterDNSIP | quote }}
+  INITIAL_TIMEOUT: {{ .Values.daemonset.config.initialTimeout | quote }}
+  CHECK_TIMEOUT: {{ .Values.daemonset.config.checkTimeout | quote }}
+  MAX_RETRIES: {{ .Values.daemonset.config.maxRetries | quote }}
+  RETRY_BACKOFF: {{ .Values.daemonset.config.retryBackoff | quote }}
+  DNS_TEST_DOMAINS: {{ join "," .Values.daemonset.config.dnsTestDomains | quote }}
+  {{- if .Values.daemonset.config.clusterDNSIP }}
+  CLUSTER_DNS_IP: {{ .Values.daemonset.config.clusterDNSIP | quote }}
   {{- end }}
-  TAINT_KEY: {{ .Values.config.taintKey | quote }}
-  TAINT_VALUE: {{ .Values.config.taintValue | quote }}
-  TAINT_EFFECT: {{ .Values.config.taintEffect | quote }}
-  VERIFIED_LABEL: {{ .Values.config.verifiedLabel | quote }}
-  VERIFIED_LABEL_VALUE: {{ .Values.config.verifiedLabelValue | quote }}
-  ENABLE_METRICS: {{ .Values.config.enableMetrics | quote }}
-  METRICS_PORT: {{ .Values.config.metricsPort | quote }}
-  LOG_LEVEL: {{ .Values.config.logLevel | quote }}
-  LOG_FORMAT: {{ .Values.config.logFormat | quote }}
+  TAINT_KEY: {{ .Values.daemonset.config.taintKey | quote }}
+  TAINT_VALUE: {{ .Values.daemonset.config.taintValue | quote }}
+  TAINT_EFFECT: {{ .Values.daemonset.config.taintEffect | quote }}
+  VERIFIED_LABEL: {{ .Values.daemonset.config.verifiedLabel | quote }}
+  VERIFIED_LABEL_VALUE: {{ .Values.daemonset.config.verifiedLabelValue | quote }}
+  DELETE_FAILED_NODE: {{ .Values.daemonset.config.deleteFailedNode | quote }}
+  ENABLE_METRICS: {{ .Values.daemonset.config.enableMetrics | quote }}
+  METRICS_PORT: {{ .Values.daemonset.config.metricsPort | quote }}
+  LOG_LEVEL: {{ .Values.daemonset.config.logLevel | quote }}
+  LOG_FORMAT: {{ .Values.daemonset.config.logFormat | quote }}
+{{- end }}

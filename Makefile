@@ -2,9 +2,11 @@
 
 # Variables
 BINARY_NAME=kube-node-ready
+BINARY_NAME_CONTROLLER=kube-node-ready-controller
+BINARY_NAME_WORKER=kube-node-ready-worker
 IMAGE_NAME=kube-node-ready
 IMAGE_TAG?=latest
-REGISTRY?=docker.io
+REGISTRY?=ghcr.io
 GO_VERSION=1.25
 HELM_CHART=./deploy/helm/kube-node-ready
 
@@ -34,6 +36,21 @@ build:
 	@echo "Building $(BINARY_NAME) version $(VERSION)..."
 	mkdir -p bin/
 	$(GOBUILD) $(LDFLAGS) -o bin/$(BINARY_NAME) -v ./cmd/kube-node-ready
+
+## build-worker: Build the worker binary
+build-worker:
+	@echo "Building $(BINARY_NAME_WORKER) version $(VERSION)..."
+	mkdir -p bin/
+	$(GOBUILD) $(LDFLAGS) -o bin/$(BINARY_NAME_WORKER) -v ./cmd/kube-node-ready-worker
+
+## build-controller: Build the controller binary
+build-controller:
+	@echo "Building $(BINARY_NAME_CONTROLLER) version $(VERSION)..."
+	mkdir -p bin/
+	$(GOBUILD) $(LDFLAGS) -o bin/$(BINARY_NAME_CONTROLLER) -v ./cmd/kube-node-ready-controller
+
+## build-all: Build all binaries (legacy, worker, and controller)
+build-all: build build-worker build-controller
 
 ## clean: Clean build artifacts
 clean:
@@ -77,7 +94,7 @@ lint:
 ## docker-build: Build Docker image
 docker-build:
 	@echo "Building Docker image $(IMAGE_NAME):$(IMAGE_TAG) version $(VERSION)..."
-	docker build \
+	podman build \
 		--build-arg VERSION=$(VERSION) \
 		--build-arg COMMIT_HASH=$(COMMIT_HASH) \
 		--build-arg BUILD_DATE=$(BUILD_DATE) \
@@ -87,7 +104,7 @@ docker-build:
 ## docker-build-multiarch: Build multi-architecture Docker image (amd64, arm64)
 docker-build-multiarch:
 	@echo "Building multi-arch Docker image $(IMAGE_NAME):$(IMAGE_TAG) version $(VERSION)..."
-	docker buildx build \
+	podman build \
 		--platform linux/amd64,linux/arm64 \
 		--build-arg VERSION=$(VERSION) \
 		--build-arg COMMIT_HASH=$(COMMIT_HASH) \
@@ -98,12 +115,12 @@ docker-build-multiarch:
 ## docker-push: Push Docker image
 docker-push:
 	@echo "Pushing Docker image..."
-	docker push $(REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG)
+	podman push $(REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG)
 
 ## docker-push-multiarch: Build and push multi-architecture Docker image
 docker-push-multiarch:
 	@echo "Building and pushing multi-arch Docker image $(IMAGE_NAME):$(IMAGE_TAG) version $(VERSION)..."
-	docker buildx build \
+	podman build \
 		--platform linux/amd64,linux/arm64 \
 		--build-arg VERSION=$(VERSION) \
 		--build-arg COMMIT_HASH=$(COMMIT_HASH) \
@@ -115,7 +132,7 @@ docker-push-multiarch:
 ## docker-run: Run Docker container locally
 docker-run:
 	@echo "Running Docker container..."
-	docker run --rm $(REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG)
+	podman run --rm $(REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG)
 
 ## helm-lint: Lint Helm chart
 helm-lint:

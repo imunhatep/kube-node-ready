@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/urfave/cli/v3"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 
 	"github.com/imunhatep/kube-node-ready/internal/checker"
@@ -179,6 +181,14 @@ func main() {
 				Usage:   "Path to kubeconfig file (for out-of-cluster usage)",
 				Sources: cli.EnvVars("KUBECONFIG"),
 			},
+
+			// Node deletion
+			&cli.BoolFlag{
+				Name:    "delete-failed-node",
+				Usage:   "Delete node if all verification checks fail (DANGEROUS - disabled by default)",
+				Value:   false,
+				Sources: cli.EnvVars("DELETE_FAILED_NODE"),
+			},
 		},
 		Action: run,
 	}
@@ -228,6 +238,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		LogFormat:             cmd.String("log-format"),
 		DryRun:                cmd.Bool("dry-run"),
 		KubeconfigPath:        cmd.String("kubeconfig"),
+		DeleteFailedNode:      cmd.Bool("delete-failed-node"),
 	}
 
 	// Validate configuration
@@ -265,16 +276,30 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		}()
 	}
 
-	// Create Kubernetes client
-	clientset, err := k8sclient.CreateClient(cfg)
+	// Create Kubernetes client using adapter
+	clientCfg := config.NewClientConfigFromConfig(cfg)
+	clientset, err := k8sclient.CreateClient(clientCfg)
 	if err != nil {
 		return err
+	}
+
+	// Create dynamic client for custom resources (like Karpenter NodeClaim)
+	dynamicClient, err := k8sclient.CreateDynamicClient(clientCfg)
+	if err != nil {
+		klog.InfoS("Failed to create dynamic client, proceeding without it", "error", err)
+		dynamicClient = nil
 	}
 
 	if clientset != nil {
 		klog.Info("Kubernetes client created successfully")
 	} else {
 		klog.Info("Running without Kubernetes client (network checks only)")
+	}
+
+	if dynamicClient != nil {
+		klog.Info("Dynamic client created successfully")
+	} else {
+		klog.Info("Running without dynamic client (no custom resource support)")
 	}
 
 	// Create context with timeout and cancellation
@@ -290,13 +315,37 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		cancel()
 	}()
 
-	// Create checker
-	chk := checker.NewChecker(cfg, clientset)
+	// Create checker using adapter
+	checkerCfg := config.NewCheckerConfigFromConfig(cfg)
+	chk := checker.NewChecker(checkerCfg, clientset)
 
 	// Run verification checks with retry
 	klog.Info("Starting verification checks")
 	if err := chk.RunWithRetry(runCtx); err != nil {
 		klog.ErrorS(err, "Verification failed")
+
+		// Delete node if configured and not in dry-run mode
+		if cfg.DeleteFailedNode && !cfg.DryRun && clientset != nil {
+			klog.InfoS("DeleteFailedNode is enabled, deleting node", "node", cfg.NodeName)
+
+			// Get the node entity first
+			nodeEntity, getErr := clientset.CoreV1().Nodes().Get(context.Background(), cfg.NodeName, metav1.GetOptions{})
+			if getErr != nil {
+				klog.ErrorS(getErr, "Failed to get node for deletion", "node", cfg.NodeName)
+				return fmt.Errorf("verification failed and failed to get node for deletion: %w (original error: %v)", getErr, err)
+			}
+
+			nodeManager := node.NewManager(clientset, dynamicClient)
+			if deleteErr := nodeManager.DeleteNode(context.Background(), nodeEntity); deleteErr != nil {
+				klog.ErrorS(deleteErr, "Failed to delete node after verification failure")
+				return fmt.Errorf("verification failed and node deletion failed: %w (original error: %v)", deleteErr, err)
+			}
+			klog.InfoS("Node deleted successfully", "node", cfg.NodeName)
+			return fmt.Errorf("verification failed, node deleted: %w", err)
+		} else if cfg.DeleteFailedNode && cfg.DryRun {
+			klog.Info("Dry-run mode: would delete node due to verification failure")
+		}
+
 		return fmt.Errorf("verification failed: %w", err)
 	}
 
@@ -310,8 +359,29 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		klog.Info("No Kubernetes client available: skipping node updates")
 	} else {
 		klog.Info("Updating node status")
-		nodeManager := node.NewController(cfg, clientset)
-		if err := nodeManager.RemoveTaintAndAddLabel(context.Background()); err != nil {
+
+		// Get the node entity first
+		nodeEntity, getErr := clientset.CoreV1().Nodes().Get(context.Background(), cfg.NodeName, metav1.GetOptions{})
+		if getErr != nil {
+			klog.ErrorS(getErr, "Failed to get node for updating", "node", cfg.NodeName)
+			return fmt.Errorf("failed to get node for updating: %w", getErr)
+		}
+
+		// Prepare taints to remove and labels to add
+		taintsToRemove := []corev1.Taint{
+			{
+				Key:    cfg.TaintKey,
+				Value:  cfg.TaintValue,
+				Effect: corev1.TaintEffect(cfg.TaintEffect),
+			},
+		}
+
+		labelsToAdd := map[string]string{
+			cfg.VerifiedLabel: cfg.VerifiedLabelValue,
+		}
+
+		nodeManager := node.NewManager(clientset, dynamicClient)
+		if err := nodeManager.UpdateNodeMetadata(context.Background(), nodeEntity, taintsToRemove, labelsToAdd); err != nil {
 			klog.ErrorS(err, "Failed to update node")
 			return fmt.Errorf("failed to update node: %w", err)
 		}

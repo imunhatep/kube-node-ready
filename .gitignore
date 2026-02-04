@@ -6,6 +6,7 @@
 *.dylib
 bin/
 dist/
+deploy/manifests/
 
 # Test binary, built with `go test -c`
 *.test
@@ -26,6 +27,7 @@ go.work
 *.swp
 *.swo
 *~
+.github/*.md
 
 # OS
 .DS_Store

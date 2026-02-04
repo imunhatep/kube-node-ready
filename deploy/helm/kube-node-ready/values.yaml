@@ -1,95 +1,275 @@
 # Default values for kube-node-ready
-
-image:
-  # Docker image repository
-  # Multi-arch image supporting: linux/amd64, linux/arm64
-  repository: ghcr.io/imunhatep/kube-node-ready
-  tag: "0.2.2"
-  pullPolicy: IfNotPresent
-
-imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
 
-serviceAccount:
-  # Specifies whether a service account should be created
-  create: true
-  # Annotations to add to the service account
-  annotations: {}
-  # The name of the service account to use.
-  name: ""
+imagePullSecrets: []
 
-podAnnotations: {}
-
-podSecurityContext:
-  runAsNonRoot: true
-  runAsUser: 1000
-  fsGroup: 1000
+priorityClassName: "system-node-critical"
 
 securityContext:
   allowPrivilegeEscalation: false
   readOnlyRootFilesystem: true
   capabilities:
     drop:
-    - ALL
+      - ALL
 
-config:
-  initialTimeout: "300s"
-  checkTimeout: "10s"
-  maxRetries: 5
-  retryBackoff: "exponential"
-  dnsTestDomains:
-    - kubernetes.default.svc.cluster.local
-    - google.com
-  clusterDNSIP: ""
-  taintKey: "node-ready/unverified"
-  taintValue: "true"
-  taintEffect: "NoSchedule"
-  verifiedLabel: "node-ready/verified"
-  verifiedLabelValue: "true"
-  enableMetrics: true
-  metricsPort: 8080
-  logLevel: "info"
-  logFormat: "json"
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
 
-resources:
-  requests:
-    cpu: 50m
-    memory: 64Mi
-  limits:
-    cpu: 100m
-    memory: 128Mi
 
-# DaemonSet will only run on nodes WITHOUT the verified label
-nodeAffinity:
-  requiredDuringSchedulingIgnoredDuringExecution:
-    nodeSelectorTerms:
-    - matchExpressions:
-      - key: node-ready/verified
-        operator: DoesNotExist
+# Deployment mode: "controller" or "daemonset"
+# - controller: Controller manages worker pods dynamically (recommended for dynamic clusters)
+# - daemonset: DaemonSet runs on each node continuously (recommended for static clusters)
+deploymentMode: controller
 
-# Allow scheduling on tainted nodes
-tolerations:
-  - effect: NoSchedule
-    key: node-ready/unverified
-    operator: Exists
-  - effect: NoSchedule
-    key: node.kubernetes.io/not-ready
-    operator: Exists
-  - effect: NoSchedule
-    key: node.kubernetes.io/unreachable
-    operator: Exists
+# Controller configuration (only used when deploymentMode: controller)
+controller:
+  replicas: 1  # Set to 2+ for high availability
 
-nodeSelector: {}
+  # High availability configuration
+  leaderElection:
+    enabled: true  # Enable leader election (required for replicas > 1)
+    leaseDuration: 15s  # Duration that non-leader candidates will wait to force acquire leadership
+    renewDeadline: 10s  # Duration the leader will retry refreshing leadership before giving up
+    retryPeriod: 2s     # Duration the LeaderElector clients should wait between tries of actions
 
-priorityClassName: "system-node-critical"
+  image:
+    repository: ghcr.io/imunhatep/kube-node-ready
+    #tag: "0.2.6"
+    pullPolicy: IfNotPresent
 
-updateStrategy:
-  type: RollingUpdate
-  rollingUpdate:
-    maxUnavailable: 1
+  # Service configuration
+  service:
+    type: ClusterIP  # Service type for controller metrics/health endpoints
 
-# Metrics configuration
-metrics:
-  enabled: true
-  port: 8080
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m  # Optional: can be omitted to avoid throttling
+      memory: 128Mi  # Optional: recommended to prevent OOM issues
+
+  serviceAccount:
+    create: true
+    annotations: {}
+    name: ""
+
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+  # Health Configuration
+  health:
+    port: 8081
+
+  metrics:
+    enabled: true
+    port: 8080
+
+    # Prometheus ServiceMonitor (requires Prometheus Operator)
+    serviceMonitor:
+      enabled: false  # Set to true to create ServiceMonitor
+      # namespace: monitoring  # Optional: namespace for ServiceMonitor (defaults to release namespace)
+      interval: 30s  # Scrape interval
+      scrapeTimeout: 10s  # Scrape timeout
+      labels: {}  # Additional labels for ServiceMonitor (e.g., for Prometheus selector)
+      # prometheus: kube-prometheus
+      annotations: {}  # Additional annotations
+      # relabelings: []  # Relabeling configs
+      # metricRelabelings: []  # Metric relabeling configs
+      # targetLabels: []  # Labels to transfer from service to metrics
+
+  config:
+    # Reconciliation Configuration
+    reconciliation:
+      intervalSeconds: 10  # Interval in seconds
+      maxRetries: 5
+      retryBackoff: exponential  # Options: exponential, linear
+
+    # Node Management Configuration
+    nodeManagement:
+      deleteFailedNodes: false  # DANGEROUS: Delete nodes that fail verification
+      taints:
+        - key: node-ready/unverified
+          value: "true"
+          effect: NoSchedule
+        # Add more taints as needed:
+        # - key: node-ready/network-unverified
+        #   value: "true"
+        #   effect: NoExecute
+      verifiedLabel:
+        key: node-ready/verified
+        value: "true"
+
+    metrics:
+      enabled: true
+      port: 8080
+
+    # Health Configuration
+    health:
+      port: 8081
+
+    # Logging Configuration
+    logging:
+      level: info  # Options: debug, info, warn, error
+      format: json  # Options: json, console
+
+    # Kubernetes Client Configuration
+    kubernetes:
+      kubeconfigPath: ""  # Leave empty for in-cluster config
+      qps: 50
+      burst: 100
+
+    # Worker Pod Configuration (passed to controller via ConfigMap)
+    worker:
+      image:
+        repository: ghcr.io/imunhatep/kube-node-ready
+        tag: "0.2.6"
+        pullPolicy: IfNotPresent
+      # Note: namespace is auto-detected from controller's environment
+      # Uncomment to override (defaults to controller's namespace)
+      # namespace: kube-system
+      # Uncomment to override (defaults to worker's serviceAccountname)
+      # serviceAccountName: kube-node-ready-worker
+      timeoutSeconds: 300  # Timeout in seconds
+      priorityClassName: system-node-critical
+      resources:
+        requests:
+          cpu: "50m"
+          memory: "64Mi"
+        limits:
+          memory: "128Mi"  # Optional: recommended to prevent OOM issues
+      # Job Configuration (optional - provides better reliability and auto-retry)
+      job:
+        # Job timeout - if not specified, falls back to timeoutSeconds above
+        activeDeadlineSeconds: 300
+        # Number of retries for failed pods (Kubernetes handles this automatically)
+        backoffLimit: 2
+        # Number of successful completions required
+        completions: 1
+        # Number of parallel pods (should be 1 for node verification)
+        parallelism: 1
+        # Auto-cleanup completed jobs after specified seconds (optional)
+        # ttlSecondsAfterFinished: 600
+
+# Worker Helm resource configuration (for generating Kubernetes resources)
+# This section controls what Kubernetes resources are created by Helm
+worker:
+  # Service account configuration for worker pods
+  serviceAccount:
+    # Specifies whether a service account should be created for worker pods
+    create: true
+    # Annotations to add to the service account
+    annotations: {}
+    # The name of the service account to use.
+    # If not set and create is true, a name is generated using the fullname template
+    name: ""
+
+  # Worker runtime configuration (mounted into worker pods via ConfigMap)
+  # This configuration is used by worker pods when they execute
+  config:
+    # Worker runtime configuration
+    maxRetries: 1
+    retryBackoff: linear  # Options: exponential, linear
+
+    # Check timeout for individual checks (DNS, network, K8s API)
+    checkTimeoutSeconds: 5
+
+    # DNS domains to test during node verification
+    dnsTestDomains:
+      - kubernetes.default.svc.cluster.local
+      - google.com
+
+    # Optional: cluster DNS IP address
+    clusterDnsIp: ""
+
+    # Logging configuration for worker pods
+    logging:
+      level: info  # Options: debug, info, warn, error
+      format: json  # Options: json, console
+
+# DaemonSet configuration (only used when deploymentMode: daemonset)
+daemonset:
+  # Common image configuration (used by both modes)
+  # Docker image repository
+  # Multi-arch image supporting: linux/amd64, linux/arm64
+  image:
+    repository: ghcr.io/imunhatep/kube-node-ready
+    tag: "0.2.6"
+    pullPolicy: IfNotPresent
+
+  nodeSelector: {}
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 100m  # Optional: can be omitted in loaded clusters to avoid throttling
+      memory: 128Mi  # Optional: recommended to prevent OOM issues
+
+
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+
+  # DaemonSet will only run on nodes WITHOUT the verified label
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: node-ready/verified
+          operator: DoesNotExist
+
+  # Allow scheduling on tainted nodes
+  tolerations:
+    - effect: NoSchedule
+      key: node-ready/unverified
+      operator: Exists
+    - effect: NoSchedule
+      key: node.kubernetes.io/not-ready
+      operator: Exists
+    - effect: NoSchedule
+      key: node.kubernetes.io/unreachable
+      operator: Exists
+
+  config:
+    initialTimeout: "300s"
+    checkTimeout: "10s"
+    maxRetries: 5
+    retryBackoff: "exponential"
+    dnsTestDomains:
+      - kubernetes.default.svc.cluster.local
+      - google.com
+    clusterDNSIP: ""
+    taintKey: "node-ready/unverified"
+    taintValue: "true"
+    taintEffect: "NoSchedule"
+    verifiedLabel: "node-ready/verified"
+    verifiedLabelValue: "true"
+    deleteFailedNode: false  # DANGEROUS: Delete nodes that fail verification (disabled by default)
+    enableMetrics: true
+    metricsPort: 8080
+    logLevel: "info"
+    logFormat: "json"
+
+  serviceAccount:
+    # Specifies whether a service account should be created
+    create: true
+    # Annotations to add to the service account
+    annotations: {}
+    # The name of the service account to use.
+    name: ""
+
+  podAnnotations: {}
+
+  # Metrics configuration
+  metrics:
+    enabled: true
+    port: 8080

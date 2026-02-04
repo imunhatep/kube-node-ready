@@ -52,9 +52,33 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 Create the name of the service account to use
 */}}
 {{- define "kube-node-ready.serviceAccountName" -}}
-{{- if .Values.serviceAccount.create }}
-{{- default (include "kube-node-ready.fullname" .) .Values.serviceAccount.name }}
+{{- if .Values.daemonset.serviceAccount.create }}
+{{- default (include "kube-node-ready.fullname" .) .Values.daemonset.serviceAccount.name }}
 {{- else }}
-{{- default "default" .Values.serviceAccount.name }}
+{{- default "default" .Values.daemonset.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{/*
+Create the name of the controller service account to use
+*/}}
+{{- define "kube-node-ready.controllerServiceAccountName" -}}
+{{- if .Values.controller.serviceAccount.create }}
+{{- default (printf "%s-controller" (include "kube-node-ready.fullname" .)) .Values.controller.serviceAccount.name }}
+{{- else }}
+{{- default "default" .Values.controller.serviceAccount.name }}
+{{- end }}
+{{- end }}
+
+{{/*
+Create the name of the worker service account to use
+*/}}
+{{- define "kube-node-ready.workerServiceAccountName" -}}
+{{- if .Values.worker.serviceAccount.create }}
+{{- default (printf "%s-worker" (include "kube-node-ready.fullname" .)) .Values.worker.serviceAccount.name }}
+{{- else }}
+{{- default "default" .Values.worker.serviceAccount.name }}
+{{- end }}
+{{- end }}
+
+

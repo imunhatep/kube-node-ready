@@ -4,16 +4,15 @@ import (
 	"fmt"
 	"os"
 
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
-
-	"github.com/imunhatep/kube-node-ready/internal/config"
 )
 
 // CreateClient creates a Kubernetes client based on the configuration mode
-func CreateClient(cfg *config.Config) (*kubernetes.Clientset, error) {
+func CreateClient(cfg *ClientConfig) (*kubernetes.Clientset, error) {
 	if cfg.DryRun {
 		return createClientForDryRun(cfg)
 	}
@@ -40,13 +39,12 @@ func CreateClient(cfg *config.Config) (*kubernetes.Clientset, error) {
 
 // createClientForDryRun attempts to create a Kubernetes client for dry-run mode
 // Returns nil without error if kubeconfig is not available (graceful degradation)
-func createClientForDryRun(cfg *config.Config) (*kubernetes.Clientset, error) {
+func createClientForDryRun(cfg *ClientConfig) (*kubernetes.Clientset, error) {
 	kubeconfigPath := resolveKubeconfigPath(cfg.KubeconfigPath)
 
 	// Check if kubeconfig exists
 	if _, err := os.Stat(kubeconfigPath); os.IsNotExist(err) {
-		klog.InfoS("Dry-run mode: kubeconfig not found, running network checks only",
-			"kubeconfigPath", kubeconfigPath)
+		klog.InfoS("Dry-run mode: kubeconfig not found, running network checks only", "kubeconfigPath", kubeconfigPath)
 		klog.Info("Kubernetes API checks will be skipped")
 		return nil, nil
 	}
@@ -54,9 +52,7 @@ func createClientForDryRun(cfg *config.Config) (*kubernetes.Clientset, error) {
 	// Try to create client
 	clientset, err := createClientFromKubeconfig(kubeconfigPath)
 	if err != nil {
-		klog.InfoS("Dry-run mode: failed to create Kubernetes client",
-			"error", err,
-			"kubeconfigPath", kubeconfigPath)
+		klog.InfoS("Dry-run mode: failed to create Kubernetes client", "error", err, "kubeconfigPath", kubeconfigPath)
 		klog.Info("Continuing with network checks only")
 		return nil, nil
 	}
@@ -107,4 +103,80 @@ func resolveKubeconfigPath(configuredPath string) string {
 
 	homeDir, _ := os.UserHomeDir()
 	return homeDir + "/.kube/config"
+}
+
+// CreateDynamicClient creates a dynamic Kubernetes client that can work with custom resources
+func CreateDynamicClient(cfg *ClientConfig) (dynamic.Interface, error) {
+	if cfg.DryRun {
+		return createDynamicClientForDryRun(cfg)
+	}
+
+	// If kubeconfig is provided, use it
+	if cfg.KubeconfigPath != "" {
+		dynamicClient, err := createDynamicClientFromKubeconfig(cfg.KubeconfigPath)
+		if err != nil {
+			klog.ErrorS(err, "Failed to create dynamic client from kubeconfig")
+			return nil, fmt.Errorf("failed to create dynamic client: %w", err)
+		}
+		return dynamicClient, nil
+	}
+
+	// Otherwise, use in-cluster config
+	dynamicClient, err := createDynamicClientInCluster()
+	if err != nil {
+		klog.ErrorS(err, "Failed to create in-cluster dynamic client")
+		return nil, fmt.Errorf("failed to create dynamic client: %w", err)
+	}
+
+	return dynamicClient, nil
+}
+
+// createDynamicClientForDryRun creates a dynamic client for dry-run mode
+func createDynamicClientForDryRun(cfg *ClientConfig) (dynamic.Interface, error) {
+	kubeconfigPath := resolveKubeconfigPath(cfg.KubeconfigPath)
+
+	// Check if kubeconfig exists
+	if _, err := os.Stat(kubeconfigPath); os.IsNotExist(err) {
+		klog.InfoS("Dry-run mode: kubeconfig not found, dynamic client not available", "kubeconfigPath", kubeconfigPath)
+		return nil, nil
+	}
+
+	// Try to create dynamic client
+	dynamicClient, err := createDynamicClientFromKubeconfig(kubeconfigPath)
+	if err != nil {
+		klog.InfoS("Dry-run mode: failed to create dynamic client", "error", err, "kubeconfigPath", kubeconfigPath)
+		return nil, nil
+	}
+
+	return dynamicClient, nil
+}
+
+// createDynamicClientFromKubeconfig creates a dynamic client from a kubeconfig file
+func createDynamicClientFromKubeconfig(kubeconfigPath string) (dynamic.Interface, error) {
+	restConfig, err := clientcmd.BuildConfigFromFlags("", kubeconfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build config from kubeconfig: %w", err)
+	}
+
+	dynamicClient, err := dynamic.NewForConfig(restConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create dynamic client: %w", err)
+	}
+
+	return dynamicClient, nil
+}
+
+// createDynamicClientInCluster creates a dynamic client using in-cluster configuration
+func createDynamicClientInCluster() (dynamic.Interface, error) {
+	restConfig, err := rest.InClusterConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get in-cluster config: %w", err)
+	}
+
+	dynamicClient, err := dynamic.NewForConfig(restConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create dynamic client: %w", err)
+	}
+
+	return dynamicClient, nil
 }

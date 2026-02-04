@@ -1,6 +1,6 @@
 # kube-node-ready
 
-A lightweight Kubernetes DaemonSet that verifies node networking before allowing workloads to be scheduled. Designed to work seamlessly with Karpenter and other node autoscalers.
+A Kubernetes operator that verifies node networking before allowing workloads to be scheduled. Designed for dynamic clusters with node autoscaling (Karpenter, Cluster Autoscaler, etc.).
 
 ## Overview
 
@@ -10,22 +10,60 @@ When new nodes join a Kubernetes cluster, they may have networking issues such a
 - No connectivity within the cluster
 - Broken service discovery
 
-**kube-node-ready** solves this by:
-1. Running verification checks on new nodes before they accept workloads
-2. Removing the taint only when all checks pass
-3. Adding a label to mark the node as verified
-4. Automatically terminating after successful verification (zero ongoing cost)
+**kube-node-ready** solves this with a **Controller + Worker architecture**:
+1. **Controller** watches for new/unverified nodes and orchestrates verification
+2. **Worker pods** execute verification checks on-demand for each node
+3. **Automated remediation** - Removes taints, adds labels, and optionally deletes failed nodes
+4. **Centralized metrics** - Single endpoint for monitoring all node verifications
+
+## Architecture
+
+**Controller-Worker Mode** (Recommended for production):
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Controller Deployment (single replica)                      │
+│  • Watches node events                                      │
+│  • Creates worker pods for unverified nodes                 │
+│  • Manages reconciliation & retries                         │
+│  • Exposes centralized metrics                              │
+│  • Handles node lifecycle (optional deletion)               │
+└────────────┬────────────────────────────────────────────────┘
+             │
+             │ Creates on-demand
+             ↓
+┌─────────────────────────────────────────────────────────────┐
+│ Worker Pods (per node, short-lived)                         │
+│  • DNS checks                                               │
+│  • Kubernetes API connectivity                              │
+│  • Network connectivity tests                               │
+│  • Service discovery validation                             │
+│  • Reports back via exit code                               │
+│  • Terminates after completion                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**DaemonSet Mode** (Legacy, simpler but less efficient):
+- Single pod per node, always running or terminated after verification
+- See [DaemonSet Architecture](docs/ARCHITECTURE_DAEMONSET.md) for details
 
 ## Features
 
-- ✅ **One-time verification** - Runs once per node, then terminates
-- ✅ **Zero ongoing resource consumption** - Pods removed after verification
+### Controller-Worker Mode
+- ✅ **Intelligent orchestration** - Controller manages verification lifecycle
+- ✅ **On-demand workers** - Pods created only when needed, then terminated
+- ✅ **Centralized metrics** - Single Prometheus endpoint for all nodes
+- ✅ **Automatic retries** - Exponential backoff with configurable limits
+- ✅ **Node remediation** - Optional automatic deletion of failed nodes (with Karpenter NodeClaim detection)
+- ✅ **Reconciliation loop** - Ensures all nodes are verified
+- ✅ **Leader election** - High availability support
+- ✅ **Karpenter-optimized** - Perfect for dynamic node scaling
+
+### Verification Capabilities
 - ✅ **Comprehensive checks** - DNS, Kubernetes API, network connectivity, service discovery
-- ✅ **Retry logic** - Exponential backoff handles transient failures
-- ✅ **Label-based lifecycle** - Uses nodeAffinity to auto-remove pods
-- ✅ **Karpenter-ready** - Works seamlessly with node autoscaling
-- ✅ **Multi-architecture** - Supports both amd64 and arm64 (AWS Graviton, GCP Tau, Azure Ampere)
+- ✅ **Configurable timeouts** - Per-check and overall verification timeouts
+- ✅ **Multi-architecture** - Supports amd64 and arm64 (AWS Graviton, GCP Tau, Azure Ampere)
 - ✅ **Production-ready** - Security hardened, minimal permissions
+- ✅ **Flexible configuration** - YAML-based config via ConfigMap
 
 ## Quick Start
 
@@ -33,53 +71,81 @@ When new nodes join a Kubernetes cluster, they may have networking issues such a
 
 - Kubernetes 1.24+
 - Helm 3.0+
-- Nodes with initial taint (optional but recommended)
+- kubectl configured with cluster access
+- (Recommended) Karpenter or node autoscaler configured to add initial taint
 
-### Installation
+### Installation (Controller Mode - Recommended)
 
 ```bash
 # Install with Helm
 helm install kube-node-ready ./deploy/helm/kube-node-ready \
   --namespace kube-system \
-  --create-namespace
+  --create-namespace \
+  --set deploymentMode=controller
 
 # Verify installation
-kubectl get daemonset -n kube-system kube-node-ready
-kubectl get pods -n kube-system -l app.kubernetes.io/name=kube-node-ready
+kubectl get deployment -n kube-system kube-node-ready-controller
+kubectl get pods -n kube-system -l app.kubernetes.io/component=controller
+```
+
+### Alternative: DaemonSet Mode
+
+For simpler deployments without autoscaling:
+
+```bash
+# Install in DaemonSet mode (legacy)
+helm install kube-node-ready ./deploy/helm/kube-node-ready \
+  --namespace kube-system \
+  --set deploymentMode=daemonset
 ```
 
 ### Configuration
 
-Key configuration options in `values.yaml`:
+Controller mode uses a ConfigMap-based configuration. Key options:
 
 ```yaml
-config:
-  # Maximum time for initial verification
-  initialTimeout: "300s"
-  
-  # Timeout for individual checks (DNS, network, Kubernetes API)
-  checkTimeout: "10s"
-  
-  # Number of retry attempts
-  maxRetries: 5
-  
-  # DNS domains to test
-  dnsTestDomains:
-    - kubernetes.default.svc.cluster.local
-    - google.com
-  
-  # Taint to remove on success
-  taintKey: "node-ready/unverified"
-  
-  # Label to add on success
-  verifiedLabel: "node-ready/verified"
+# Controller settings
+controller:
+  config:
+    # Worker pod configuration
+    worker:
+      image:
+        repository: ghcr.io/imunhatep/kube-node-ready
+        tag: "latest"
+      namespace: kube-system
+      timeoutSeconds: 300
+      checkTimeoutSeconds: 10
+      dnsTestDomains:
+        - kubernetes.default.svc.cluster.local
+        - google.com
+      
+    # Reconciliation settings  
+    reconciliation:
+      intervalSeconds: 30
+      maxRetries: 5
+      retryBackoff: exponential
+      
+    # Node management
+    nodeManagement:
+      deleteFailedNodes: false  # Set to true to auto-delete failed nodes
+      taints:
+        - key: node-ready/unverified
+          value: "true"
+          effect: NoSchedule
+      verifiedLabel:
+        key: node-ready/verified
+        value: "true"
 ```
+
+See [examples/controller-config.yaml](examples/controller-config.yaml) for full configuration.
 
 ## How It Works
 
+### Controller-Worker Flow
+
 ### 1. Node Created with Taint
 ```bash
-# New node has taint preventing workload scheduling
+# New node created by Karpenter/autoscaler with taint
 kubectl get node <node-name> -o yaml
 # spec:
 #   taints:
@@ -88,18 +154,32 @@ kubectl get node <node-name> -o yaml
 #     effect: NoSchedule
 ```
 
-### 2. Verification Pod Scheduled
-DaemonSet schedules pod on the new node (tolerates the taint).
+### 2. Controller Detects Unverified Node
+- Controller watches node events
+- Detects new node without `node-ready/verified` label
+- Checks if node has verification taint
+- Adds node to reconciliation queue
 
-### 3. Checks Execute
-- DNS resolution (internal + external)
-- Kubernetes API connectivity
-- Network connectivity
-- Service discovery
+### 3. Worker Pod Created
+- Controller creates a worker pod with nodeAffinity for the target node
+- Worker pod tolerates the verification taint
+- Pod scheduled exclusively on the unverified node
 
-### 4. Success: Node Marked Ready
+### 4. Verification Checks Execute
+Worker performs comprehensive checks:
+- **DNS resolution** (internal + external)
+- **Kubernetes API connectivity**
+- **Network connectivity** tests
+- **Service discovery** validation
+
+### 5. Results Reported
+- Worker pod exits with status code (0 = success, non-zero = failure)
+- Controller reads pod status and exit code
+- Controller updates metrics with verification results
+
+### 6. Success: Node Marked Ready
 ```bash
-# Taint removed, label added
+# Controller removes taint and adds verified label
 kubectl get node <node-name> -o yaml
 # metadata:
 #   labels:
@@ -108,32 +188,76 @@ kubectl get node <node-name> -o yaml
 #   taints: []  # Taint removed
 ```
 
-### 5. Pod Terminates
-NodeAffinity excludes nodes with `verified` label, pod automatically terminates.
+### 7. Worker Pod Cleaned Up
+- Controller deletes the completed worker pod
+- Node is now ready for workload scheduling
+- Zero ongoing resource consumption
 
-## Architecture
+### 8. Failure Handling (if checks fail)
+- Worker pod exits with non-zero status
+- Controller implements retry logic with exponential backoff
+- After max retries, optionally deletes the node (if `deleteFailedNodes: true`)
+- Metrics expose failure details for alerting
+
+## Detailed Architecture
+
+### Controller-Worker Pattern
 
 ```
-┌─────────────────────────────────────────┐
-│ New Node (tainted)                      │
-│   ↓                                     │
-│ kube-node-ready Pod Starts              │
-│   ↓                                     │
-│ Run Verification Checks                 │
-│   ├─ DNS Check                          │
-│   ├─ Kubernetes API Check               │
-│   ├─ Network Check                      │
-│   └─ Service Discovery Check            │
-│   ↓                                     │
-│ All Pass? → Remove Taint + Add Label   │
-│   ↓                                     │
-│ Pod Terminates (nodeAffinity)           │
-│   ↓                                     │
-│ Node Ready for Workloads ✅             │
-└─────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────┐
+│                    Kubernetes API Server                           │
+└───────────────────────────┬───────────────────────────────────────┘
+                            │
+                            │ Watch Nodes
+                            ↓
+┌───────────────────────────────────────────────────────────────────┐
+│                   kube-node-ready-controller                       │
+│                                                                    │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │ Reconciliation Loop                                         │  │
+│  │  1. Detect unverified nodes                                │  │
+│  │  2. Create worker pod with nodeAffinity                    │  │
+│  │  3. Monitor worker pod status                              │  │
+│  │  4. Process results (exit code)                            │  │
+│  │  5. Update node (remove taint, add label)                  │  │
+│  │  6. Clean up worker pod                                    │  │
+│  │  7. Handle failures (retry/delete node)                    │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                                                                    │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │ Metrics & Monitoring                                        │  │
+│  │  • Nodes verified/failed                                   │  │
+│  │  • Verification duration                                   │  │
+│  │  • Retry attempts                                          │  │
+│  │  • Worker pod status                                       │  │
+│  └────────────────────────────────────────────────────────────┘  │
+└────────────┬───────────────────────────────────────────────────────┘
+             │
+             │ Creates Worker Pods
+             ↓
+┌───────────────────────────────────────────────────────────────────┐
+│              Worker Pods (short-lived, per node)                  │
+│                                                                    │
+│  Node: node-1           Node: node-2           Node: node-3       │
+│  ┌─────────────────┐    ┌─────────────────┐    ┌──────────────┐  │
+│  │ Worker Pod      │    │ Worker Pod      │    │ Worker Pod   │  │
+│  │                 │    │                 │    │              │  │
+│  │ • DNS Check     │    │ • DNS Check     │    │ • DNS Check  │  │
+│  │ • API Check     │    │ • API Check     │    │ • API Check  │  │
+│  │ • Network Check │    │ • Network Check │    │ • Network... │  │
+│  │ • Service Check │    │ • Service Check │    │ • Service... │  │
+│  │                 │    │                 │    │              │  │
+│  │ Exit: 0 ✅      │    │ Exit: 0 ✅      │    │ Exit: 1 ❌   │  │
+│  └─────────────────┘    └─────────────────┘    └──────────────┘  │
+│  Terminated            Terminated             Retry/Delete       │
+└───────────────────────────────────────────────────────────────────┘
 ```
 
-See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed architecture documentation.
+See [Controller Architecture](docs/ARCHITECTURE_CONTROLLER.md) for detailed design.
+
+### DaemonSet Mode (Legacy)
+
+For simpler deployments, a DaemonSet mode is available where pods run continuously or terminate after verification. See [DaemonSet Architecture](docs/ARCHITECTURE_DAEMONSET.md).
 
 ## Usage with Karpenter
 
@@ -153,6 +277,31 @@ spec:
           effect: NoSchedule
       # ... other configuration
 ```
+
+### Karpenter NodeClaim Integration
+
+When `deleteFailedNodes` is enabled, kube-node-ready automatically detects Karpenter-managed nodes and prefers to delete the corresponding `NodeClaim` resource instead of the node directly. This ensures proper cleanup and allows Karpenter to handle termination gracefully.
+
+**How it works:**
+1. When node verification fails and deletion is triggered
+2. kube-node-ready searches for NodeClaim resources with `status.nodeName` matching the failed node
+3. If a NodeClaim is found, it deletes the NodeClaim (preferred method)
+4. If no NodeClaim is found, it falls back to direct node deletion
+5. Karpenter handles the actual node termination and cleanup
+
+**Benefits:**
+- ✅ Proper integration with Karpenter's lifecycle management
+- ✅ Maintains Karpenter's termination workflows (draining, finalizers, etc.)
+- ✅ Preserves Karpenter's spot instance handling
+- ✅ Automatic fallback for non-Karpenter nodes
+
+**Example logs:**
+```
+INFO Found NodeClaim for failed node, deleting NodeClaim instead  nodeClaim=default-12345 node=ip-192-168-1-100
+INFO Successfully deleted NodeClaim, node should be terminated by Karpenter  nodeClaim=default-12345
+```
+
+See [examples/karpenter-example.yaml](examples/karpenter-example.yaml) for NodeClaim resource format.
 
 ## Verification Checks
 
@@ -179,9 +328,36 @@ spec:
 ## Monitoring
 
 ### Metrics (Prometheus format)
-Available at `:8080/metrics` during pod execution:
 
+**Controller Mode** - Available at controller pod `:8080/metrics`:
+
+```prometheus
+# Node verification status
+kube_node_ready_verification_status{node="node-1",status="verified"} 1
+kube_node_ready_verification_status{node="node-2",status="failed"} 1
+
+# Verification duration
+kube_node_ready_verification_duration_seconds{node="node-1"} 45.2
+
+# Total verifications
+kube_node_ready_verifications_total{status="success"} 150
+kube_node_ready_verifications_total{status="failed"} 3
+
+# Active worker pods
+kube_node_ready_worker_pods{status="running"} 2
+kube_node_ready_worker_pods{status="succeeded"} 148
+
+# Retry attempts
+kube_node_ready_retry_attempts_total{node="node-2"} 3
+
+# Controller health
+kube_node_ready_controller_healthy 1
+kube_node_ready_controller_reconcile_errors_total 0
 ```
+
+**DaemonSet Mode** - Available at each pod's `:8080/metrics`:
+
+```prometheus
 node_check_status{node="node-1"} 1
 node_check_dns_duration_seconds{node="node-1"} 0.123
 node_check_api_duration_seconds{node="node-1"} 0.456
@@ -190,16 +366,82 @@ node_check_failures_total{node="node-1",check="dns"} 0
 ```
 
 ### Logs
-Structured JSON logs with relevant context:
 
+**Controller Logs**:
+```json
+{"level":"info","msg":"Node added to queue","node":"node-1","state":"unverified"}
+{"level":"info","msg":"Creating worker pod","node":"node-1","pod":"verify-node-1"}
+{"level":"info","msg":"Worker completed successfully","node":"node-1","duration":"45.2s"}
+{"level":"info","msg":"Node verified","node":"node-1","label":"node-ready/verified=true"}
+```
+
+**Worker Logs**:
 ```json
 {"level":"info","timestamp":"2024-01-23T10:00:00Z","msg":"Starting DNS check","domain":"kubernetes.default.svc.cluster.local"}
 {"level":"info","timestamp":"2024-01-23T10:00:01Z","msg":"DNS check passed","domain":"kubernetes.default.svc.cluster.local","addresses":["10.96.0.1"],"duration":"0.123s"}
+{"level":"info","msg":"All checks passed","node":"node-1","total_duration":"45.2s"}
 ```
 
 ## Troubleshooting
 
-### Pod Doesn't Schedule on New Node
+### Controller Mode
+
+#### Worker Pod Not Created for New Node
+```bash
+# Check controller logs
+kubectl logs -n kube-system -l app.kubernetes.io/component=controller
+
+# Check if node is already verified
+kubectl get nodes -L node-ready/verified
+
+# Check controller reconciliation
+kubectl describe deployment -n kube-system kube-node-ready-controller
+```
+
+#### Verification Fails
+```bash
+# Check controller logs for retry attempts
+kubectl logs -n kube-system -l app.kubernetes.io/component=controller | grep -i failed
+
+# Check worker pod logs
+kubectl logs -n kube-system -l app.kubernetes.io/component=worker
+
+# Check worker pod status
+kubectl get pods -n kube-system -l app.kubernetes.io/component=worker -o wide
+
+# Manually inspect failed node
+kubectl describe node <node-name>
+```
+
+#### Worker Pod Stuck
+```bash
+# Check pod events
+kubectl describe pod -n kube-system <worker-pod-name>
+
+# Check if node is schedulable
+kubectl get node <node-name> -o json | jq '.spec.taints'
+
+# Manually delete stuck worker
+kubectl delete pod -n kube-system <worker-pod-name>
+# Controller will recreate it
+```
+
+#### Controller Not Running
+```bash
+# Check controller status
+kubectl get deployment -n kube-system kube-node-ready-controller
+
+# Check controller logs
+kubectl logs -n kube-system -l app.kubernetes.io/component=controller
+
+# Check RBAC permissions
+kubectl auth can-i list nodes --as=system:serviceaccount:kube-system:kube-node-ready-controller
+kubectl auth can-i create pods --as=system:serviceaccount:kube-system:kube-node-ready-controller
+```
+
+### DaemonSet Mode
+
+#### Pod Doesn't Schedule on New Node
 ```bash
 # Check if node has the verified label already
 kubectl get nodes -L node-ready/verified
@@ -208,7 +450,7 @@ kubectl get nodes -L node-ready/verified
 kubectl get ds -n kube-system kube-node-ready -o yaml | grep -A 10 affinity
 ```
 
-### Verification Fails
+#### Verification Fails
 ```bash
 # Check pod logs
 kubectl logs -n kube-system -l app.kubernetes.io/name=kube-node-ready
@@ -220,7 +462,7 @@ kubectl describe node <node-name> | grep Taints
 kubectl exec -n kube-system <pod-name> -- nslookup kubernetes.default.svc.cluster.local
 ```
 
-### Pod Doesn't Terminate After Success
+#### Pod Doesn't Terminate After Success
 ```bash
 # Verify label was added
 kubectl get node <node-name> --show-labels | grep verified
@@ -236,25 +478,50 @@ kubectl label node <node-name> node-ready/verified=true
 # Remove the verified label
 kubectl label node <node-name> node-ready/verified-
 
-# New pod will be scheduled automatically
-kubectl get pods -n kube-system -l app.kubernetes.io/name=kube-node-ready -w
+# Controller mode: Controller will create new worker pod automatically
+# DaemonSet mode: New pod will be scheduled automatically
+
+# Watch for new pods
+kubectl get pods -n kube-system -w
 ```
 
 ## Development
 
-### Local Testing with Dry-Run Mode
+### Local Testing
 
-Test the application locally without modifying cluster nodes:
+#### Run Controller Locally
+```bash
+# Build controller
+make build-controller
+
+# Run controller against your cluster
+./examples/run-controller-local.sh
+
+# Or with custom config
+CONFIG_FILE=/path/to/config.yaml ./examples/run-controller-local.sh
+```
+
+#### Run Worker Locally
+```bash
+# Build worker
+make build-worker
+
+# Run worker for a specific node
+NODE_NAME=my-node ./examples/run-worker-local.sh
+```
+
+#### Dry-Run Mode (DaemonSet)
+Test the daemonset binary locally without modifying cluster nodes:
 
 ```bash
-# Run with default kubeconfig
-go run ./cmd/kube-node-ready --dry-run --log-format=console
+# Build daemonset binary
+make build
 
-# Or with custom kubeconfig
-go run ./cmd/kube-node-ready --dry-run --kubeconfig=/path/to/config
+# Run with dry-run flag
+./bin/kube-node-ready --dry-run --log-format=console
 
 # With debug logging
-go run ./cmd/kube-node-ready --dry-run --log-level=debug --log-format=console
+./bin/kube-node-ready --dry-run --log-level=debug --log-format=console
 ```
 
 **Dry-run mode:**
@@ -264,39 +531,34 @@ go run ./cmd/kube-node-ready --dry-run --log-level=debug --log-format=console
 - ❌ Does NOT modify node taints or labels
 - Perfect for development and testing
 
-
 ### Build
 
 ```bash
-# Build using Make (automatically includes version from git)
-make build
+# Build all binaries (daemonset, controller, worker)
+make build-all
 
-# Or build manually with version information
-go build -ldflags "-X main.version=1.0.0 -X main.commitHash=$(git rev-parse --short HEAD) -X main.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  -o bin/kube-node-ready ./cmd/kube-node-ready
+# Build specific binary
+make build-controller  # Controller
+make build-worker      # Worker
+make build             # DaemonSet (legacy)
 
-# Build Docker image with version information
+# Build with version information
+VERSION=1.0.0 make build-all
+
+# Build Docker/Podman image with all binaries
 make docker-build VERSION=1.0.0
 
-# Or manually
-docker build \
+# Or manually with podman
+podman build \
   --build-arg VERSION=1.0.0 \
   --build-arg COMMIT_HASH=$(git rev-parse --short HEAD) \
   --build-arg BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
   -t kube-node-ready:1.0.0 .
 
-# Test locally with dry-run (uses local kubeconfig if available)
-make dry-run
-# Or: ./bin/kube-node-ready --dry-run --log-format=console
-
 # Check version
+./bin/kube-node-ready-controller --version
+./bin/kube-node-ready-worker --version
 ./bin/kube-node-ready --version
-
-# Test in production mode (requires in-cluster config or kubeconfig)
-export NODE_NAME=test-node
-export KUBERNETES_SERVICE_HOST=localhost
-export KUBERNETES_SERVICE_PORT=6443
-./bin/kube-node-ready
 ```
 
 ### Testing
@@ -355,11 +617,22 @@ config:
 
 ## Resource Usage
 
-- **During verification**: ~64Mi memory, ~50m CPU
+### Controller Mode
+- **Controller**: ~100Mi memory, ~100m CPU (always running)
+- **Worker pods**: ~64Mi memory, ~50m CPU (per verification, then terminated)
+- **After verification**: Only controller remains running
+
+### DaemonSet Mode
+- **During verification**: ~64Mi memory, ~50m CPU per node
 - **After verification**: 0 (pod terminated)
-- **Per node**: One-time cost only
 
 ### Cluster Impact
+**Controller Mode:**
+- 10 nodes: Controller + 64Mi per active verification
+- 1000 nodes: Controller + ~64Gi during bulk scaling, then just controller
+- Ongoing cost: Only controller (~100Mi)
+
+**DaemonSet Mode:**
 - 10 nodes: ~640Mi during verification, then 0
 - 1000 nodes: ~64Gi during bulk scaling, then 0
 - Zero ongoing cost after verification complete

@@ -1,0 +1,18 @@
+{{- if  (eq .Values.deploymentMode "controller") }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "kube-node-ready.fullname" . }}-worker
+  labels:
+    {{- include "kube-node-ready.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "kube-node-ready.fullname" . }}-worker
+subjects:
+- kind: ServiceAccount
+  name: {{ include "kube-node-ready.workerServiceAccountName" . }}
+  namespace: {{ .Release.Namespace }}
+{{- end }}
+

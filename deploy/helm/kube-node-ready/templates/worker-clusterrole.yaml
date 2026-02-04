@@ -1,0 +1,25 @@
+{{- if  (eq .Values.deploymentMode "controller") }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kube-node-ready.fullname" . }}-worker
+  labels:
+    {{- include "kube-node-ready.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+rules:
+# Permissions for service discovery checks
+- apiGroups: [""]
+  resources: ["services", "endpoints"]
+  verbs: ["get", "list"]
+
+# Permissions to update node labels and remove taints
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get", "update", "patch"]
+
+# Permissions to read node status
+- apiGroups: [""]
+  resources: ["nodes/status"]
+  verbs: ["get"]
+{{- end }}
+

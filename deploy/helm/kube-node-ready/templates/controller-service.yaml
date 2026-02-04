@@ -1,0 +1,24 @@
+{{- if  (eq .Values.deploymentMode "controller") }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kube-node-ready.fullname" . }}-controller
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kube-node-ready.labels" . | nindent 4 }}
+    app.kubernetes.io/component: controller
+spec:
+  type: {{ .Values.controller.service.type }}
+  selector:
+    {{- include "kube-node-ready.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: controller
+  ports:
+  - name: metrics
+    port: {{ .Values.controller.metrics.port }}
+    targetPort: metrics
+    protocol: TCP
+  - name: health
+    port: {{ .Values.controller.health.port }}
+    targetPort: health
+    protocol: TCP
+{{- end }}
