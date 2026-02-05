@@ -21,13 +21,14 @@ type JobConfig struct {
 // This only includes pod scheduling and lifecycle configuration.
 // Worker runtime configuration (checks, DNS, etc.) is managed via separate worker ConfigMap.
 type WorkerPodConfig struct {
-	Image              ImageConfig     `yaml:"image"`
-	Namespace          string          `yaml:"namespace"`
-	ServiceAccountName string          `yaml:"serviceAccountName"`
-	PriorityClassName  string          `yaml:"priorityClassName"`
-	Resources          ResourcesConfig `yaml:"resources"`
-	ConfigMapName      string          `yaml:"configMapName"` // Name of worker ConfigMap to mount
-	Job                JobConfig       `yaml:"job"`           // Job-specific configuration
+	Image              ImageConfig        `yaml:"image"`
+	Namespace          string             `yaml:"namespace"`
+	ServiceAccountName string             `yaml:"serviceAccountName"`
+	PriorityClassName  string             `yaml:"priorityClassName"`
+	Resources          ResourcesConfig    `yaml:"resources"`
+	ConfigMapName      string             `yaml:"configMapName"` // Name of worker ConfigMap to mount
+	Job                JobConfig          `yaml:"job"`           // Job-specific configuration
+	Tolerations        []TolerationConfig `yaml:"tolerations"`   // Additional tolerations for worker pods
 }
 
 // GetTimeout returns timeout as time.Duration
@@ -71,6 +72,15 @@ type TaintConfig struct {
 	Key    string `yaml:"key"`
 	Value  string `yaml:"value"`
 	Effect string `yaml:"effect"`
+}
+
+// TolerationConfig holds Kubernetes toleration configuration
+type TolerationConfig struct {
+	Key               string `yaml:"key"`
+	Operator          string `yaml:"operator,omitempty"`          // Exists (default) or Equal
+	Value             string `yaml:"value,omitempty"`             // Value to match (only for Equal operator)
+	Effect            string `yaml:"effect,omitempty"`            // NoSchedule, PreferNoSchedule, NoExecute, or empty for all
+	TolerationSeconds *int64 `yaml:"tolerationSeconds,omitempty"` // For NoExecute effect
 }
 
 // LabelConfig holds Kubernetes label configuration

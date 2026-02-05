@@ -94,6 +94,67 @@ func (w *WorkerManager) buildWorkerEnvVars() []corev1.EnvVar {
 	}
 }
 
+// buildTolerations constructs tolerations for worker pods
+func (w *WorkerManager) buildTolerations() []corev1.Toleration {
+	tolerations := []corev1.Toleration{}
+
+	// Add tolerations for verification taints (these will be removed on success)
+	for _, taint := range w.config.NodeManagement.Taints {
+		tolerations = append(tolerations, corev1.Toleration{
+			Key:      taint.Key,
+			Operator: corev1.TolerationOpExists,
+			Effect:   corev1.TaintEffect(taint.Effect),
+		})
+	}
+
+	// Add default Kubernetes tolerations
+	tolerations = append(tolerations,
+		corev1.Toleration{
+			Key:      "node.kubernetes.io/not-ready",
+			Operator: corev1.TolerationOpExists,
+			Effect:   corev1.TaintEffectNoSchedule,
+		},
+		corev1.Toleration{
+			Key:      "node.kubernetes.io/unreachable",
+			Operator: corev1.TolerationOpExists,
+			Effect:   corev1.TaintEffectNoSchedule,
+		},
+	)
+
+	// Add configured additional tolerations
+	for _, tolerationCfg := range w.config.Worker.Tolerations {
+		toleration := corev1.Toleration{
+			Key: tolerationCfg.Key,
+		}
+
+		// Set operator (default to Exists if not specified)
+		if tolerationCfg.Operator != "" {
+			toleration.Operator = corev1.TolerationOperator(tolerationCfg.Operator)
+		} else {
+			toleration.Operator = corev1.TolerationOpExists
+		}
+
+		// Set value (only used with Equal operator)
+		if tolerationCfg.Value != "" {
+			toleration.Value = tolerationCfg.Value
+		}
+
+		// Set effect (empty means all effects)
+		if tolerationCfg.Effect != "" {
+			toleration.Effect = corev1.TaintEffect(tolerationCfg.Effect)
+		}
+
+		// Set toleration seconds (for NoExecute effect)
+		if tolerationCfg.TolerationSeconds != nil {
+			toleration.TolerationSeconds = tolerationCfg.TolerationSeconds
+		}
+
+		tolerations = append(tolerations, toleration)
+	}
+
+	return tolerations
+}
+
 // WorkerJobStatus represents the status of a worker job
 type WorkerJobStatus struct {
 	Active     int32
@@ -113,28 +174,8 @@ func (w *WorkerManager) CreateWorkerJob(ctx context.Context, nodeName string) (*
 
 	klog.InfoS("Creating worker job", "job", jobName, "node", nodeName)
 
-	// Build tolerations from config
-	tolerations := []corev1.Toleration{}
-	for _, taint := range w.config.NodeManagement.Taints {
-		tolerations = append(tolerations, corev1.Toleration{
-			Key:      taint.Key,
-			Operator: corev1.TolerationOpExists,
-			Effect:   corev1.TaintEffect(taint.Effect),
-		})
-	}
-	// Add default tolerations
-	tolerations = append(tolerations,
-		corev1.Toleration{
-			Key:      "node.kubernetes.io/not-ready",
-			Operator: corev1.TolerationOpExists,
-			Effect:   corev1.TaintEffectNoSchedule,
-		},
-		corev1.Toleration{
-			Key:      "node.kubernetes.io/unreachable",
-			Operator: corev1.TolerationOpExists,
-			Effect:   corev1.TaintEffectNoSchedule,
-		},
-	)
+	// Build tolerations using the buildTolerations method
+	tolerations := w.buildTolerations()
 
 	// Parse resources - make limits optional
 	resourceReqs := corev1.ResourceRequirements{
@@ -147,7 +188,6 @@ func (w *WorkerManager) CreateWorkerJob(ctx context.Context, nodeName string) (*
 		resourceReqs.Requests[corev1.ResourceCPU] = resource.MustParse(w.config.Worker.Resources.Requests.CPU)
 	}
 	if w.config.Worker.Resources.Requests.Memory != "" {
-		resourceReqs.Limits[corev1.ResourceMemory] = resource.MustParse(w.config.Worker.Resources.Requests.Memory)
 		resourceReqs.Requests[corev1.ResourceMemory] = resource.MustParse(w.config.Worker.Resources.Requests.Memory)
 	}
 
