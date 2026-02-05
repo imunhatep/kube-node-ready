@@ -111,3 +111,11 @@ func (c *WorkerConfig) GetCheckTimeout() time.Duration {
 func (c *WorkerConfig) GetInitialCheckTimeout() time.Duration {
 	return time.Duration(c.InitialCheckTimeoutSeconds) * time.Second
 }
+
+func getEnv(key, defaultValue string) string {
+	value := os.Getenv(key)
+	if value == "" {
+		return defaultValue
+	}
+	return value
+}

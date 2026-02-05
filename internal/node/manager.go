@@ -292,16 +292,10 @@ func (m *Manager) DeleteNode(ctx context.Context, node *corev1.Node) error {
 	}
 
 	// Fallback: delete the node directly
-	klog.InfoS("Deleting failed node directly",
-		"node", nodeName,
-	)
+	klog.InfoS("Deleting failed node directly", "node", nodeName)
 
 	start := time.Now()
-	err = m.clientset.CoreV1().Nodes().Delete(
-		ctx,
-		nodeName,
-		metav1.DeleteOptions{},
-	)
+	err = m.clientset.CoreV1().Nodes().Delete(ctx, nodeName, metav1.DeleteOptions{})
 	duration := time.Since(start)
 
 	if err != nil {

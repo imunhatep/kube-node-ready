@@ -1,7 +1,6 @@
 # Makefile for kube-node-ready
 
 # Variables
-BINARY_NAME=kube-node-ready
 BINARY_NAME_CONTROLLER=kube-node-ready-controller
 BINARY_NAME_WORKER=kube-node-ready-worker
 IMAGE_NAME=kube-node-ready
@@ -32,11 +31,6 @@ GOMOD=$(GOCMD) mod
 all: test build
 
 ## build: Build the binary
-build:
-	@echo "Building $(BINARY_NAME) version $(VERSION)..."
-	mkdir -p bin/
-	$(GOBUILD) $(LDFLAGS) -o bin/$(BINARY_NAME) -v ./cmd/kube-node-ready
-
 ## build-worker: Build the worker binary
 build-worker:
 	@echo "Building $(BINARY_NAME_WORKER) version $(VERSION)..."
@@ -169,22 +163,22 @@ helm-package:
 
 ## run: Run locally (requires kubeconfig)
 run: build
-	@echo "Running $(BINARY_NAME) locally..."
-	./bin/$(BINARY_NAME)
+	@echo "Running $(BINARY_NAME_CONTROLLER) locally..."
+	./bin/$(BINARY_NAME_CONTROLLER)
 
 ## dry-run: Run in dry-run mode (no node modifications)
 dry-run: build
-	@echo "Running $(BINARY_NAME) in dry-run mode..."
-	./bin/$(BINARY_NAME) --dry-run --log-format=console
+	@echo "Running $(BINARY_NAME_CONTROLLER) in dry-run mode..."
+	./bin/$(BINARY_NAME_CONTROLLER) --dry-run --log-format=console
 
 ## dry-run-debug: Run in dry-run mode with debug logging
 dry-run-debug: build
-	@echo "Running $(BINARY_NAME) in dry-run mode with debug logging..."
-	./bin/$(BINARY_NAME) --dry-run --log-format=console --log-level=debug
+	@echo "Running $(BINARY_NAME_CONTROLLER) in dry-run mode with debug logging..."
+	./bin/$(BINARY_NAME_CONTROLLER) --dry-run --log-format=console --log-level=debug
 
 ## install: Install binary to GOPATH/bin
 install:
-	@echo "Installing $(BINARY_NAME)..."
+	@echo "Installing $(BINARY_NAME_CONTROLLER)..."
 	$(GOCMD) install ./cmd/kube-node-ready
 
 ## version: Show version information

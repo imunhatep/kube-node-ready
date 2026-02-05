@@ -18,13 +18,7 @@ podSecurityContext:
   runAsUser: 1000
   fsGroup: 1000
 
-
-# Deployment mode: "controller" or "daemonset"
-# - controller: Controller manages worker pods dynamically (recommended for dynamic clusters)
-# - daemonset: DaemonSet runs on each node continuously (recommended for static clusters)
-deploymentMode: controller
-
-# Controller configuration (only used when deploymentMode: controller)
+# Controller configuration
 controller:
   replicas: 1  # Set to 2+ for high availability
 
@@ -236,83 +230,3 @@ worker:
       level: info  # Options: debug, info, warn, error
       format: json  # Options: json, console
 
-# DaemonSet configuration (only used when deploymentMode: daemonset)
-daemonset:
-  # Common image configuration (used by both modes)
-  # Docker image repository
-  # Multi-arch image supporting: linux/amd64, linux/arm64
-  image:
-    repository: ghcr.io/imunhatep/kube-node-ready
-    tag: "0.2.6"
-    pullPolicy: IfNotPresent
-
-  nodeSelector: {}
-
-  resources:
-    requests:
-      cpu: 50m
-      memory: 64Mi
-    limits:
-      cpu: 100m  # Optional: can be omitted in loaded clusters to avoid throttling
-      memory: 128Mi  # Optional: recommended to prevent OOM issues
-
-
-  updateStrategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 1
-
-  # DaemonSet will only run on nodes WITHOUT the verified label
-  nodeAffinity:
-    requiredDuringSchedulingIgnoredDuringExecution:
-      nodeSelectorTerms:
-      - matchExpressions:
-        - key: node-ready/verified
-          operator: DoesNotExist
-
-  # Allow scheduling on tainted nodes
-  tolerations:
-    - effect: NoSchedule
-      key: node-ready/unverified
-      operator: Exists
-    - effect: NoSchedule
-      key: node.kubernetes.io/not-ready
-      operator: Exists
-    - effect: NoSchedule
-      key: node.kubernetes.io/unreachable
-      operator: Exists
-
-  config:
-    initialTimeout: "300s"
-    checkTimeout: "10s"
-    maxRetries: 5
-    retryBackoff: "exponential"
-    dnsTestDomains:
-      - kubernetes.default.svc.cluster.local
-      - google.com
-    clusterDNSIP: ""
-    taintKey: "node-ready/unverified"
-    taintValue: "true"
-    taintEffect: "NoSchedule"
-    verifiedLabel: "node-ready/verified"
-    verifiedLabelValue: "true"
-    deleteFailedNode: false  # DANGEROUS: Delete nodes that fail verification (disabled by default)
-    enableMetrics: true
-    metricsPort: 8080
-    logLevel: "info"
-    logFormat: "json"
-
-  serviceAccount:
-    # Specifies whether a service account should be created
-    create: true
-    # Annotations to add to the service account
-    annotations: {}
-    # The name of the service account to use.
-    name: ""
-
-  podAnnotations: {}
-
-  # Metrics configuration
-  metrics:
-    enabled: true
-    port: 8080

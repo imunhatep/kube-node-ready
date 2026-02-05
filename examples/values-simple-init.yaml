@@ -2,7 +2,6 @@
 # Save as values-simple-init.yaml and use with:
 # helm install kube-node-ready ./deploy/helm/kube-node-ready --values values-simple-init.yaml
 
-deploymentMode: controller
 
 controller:
   config:

@@ -1,4 +1,3 @@
-{{- if  (eq .Values.deploymentMode "controller") }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -36,4 +35,3 @@ data:
     logging:
       level: {{ .Values.worker.config.logging.level | quote }}
       format: {{ .Values.worker.config.logging.format | quote }}
-{{- end }}

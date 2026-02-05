@@ -42,10 +42,6 @@ When new nodes join a Kubernetes cluster, they may have networking issues such a
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**DaemonSet Mode** (Legacy, simpler but less efficient):
-- Single pod per node, always running or terminated after verification
-- See [DaemonSet Architecture](docs/ARCHITECTURE_DAEMONSET.md) for details
-
 ## Features
 
 ### Controller-Worker Mode
@@ -87,17 +83,6 @@ helm install kube-node-ready ./deploy/helm/kube-node-ready \
 # Verify installation
 kubectl get deployment -n kube-system kube-node-ready-controller
 kubectl get pods -n kube-system -l app.kubernetes.io/component=controller
-```
-
-### Alternative: DaemonSet Mode
-
-For simpler deployments without autoscaling:
-
-```bash
-# Install in DaemonSet mode (legacy)
-helm install kube-node-ready ./deploy/helm/kube-node-ready \
-  --namespace kube-system \
-  --set deploymentMode=daemonset
 ```
 
 ### Configuration
@@ -255,10 +240,6 @@ kubectl get node <node-name> -o yaml
 ```
 
 See [Controller Architecture](docs/ARCHITECTURE_CONTROLLER.md) for detailed design.
-
-### DaemonSet Mode (Legacy)
-
-For simpler deployments, a DaemonSet mode is available where pods run continuously or terminate after verification. See [DaemonSet Architecture](docs/ARCHITECTURE_DAEMONSET.md).
 
 ## Usage with Karpenter
 
@@ -422,16 +403,6 @@ kube_node_ready_controller_healthy 1
 kube_node_ready_controller_reconcile_errors_total 0
 ```
 
-**DaemonSet Mode** - Available at each pod's `:8080/metrics`:
-
-```prometheus
-node_check_status{node="node-1"} 1
-node_check_dns_duration_seconds{node="node-1"} 0.123
-node_check_api_duration_seconds{node="node-1"} 0.456
-node_check_completion_timestamp{node="node-1"} 1234567890
-node_check_failures_total{node="node-1",check="dns"} 0
-```
-
 ### Logs
 
 **Controller Logs**:
@@ -506,47 +477,10 @@ kubectl auth can-i list nodes --as=system:serviceaccount:kube-system:kube-node-r
 kubectl auth can-i create pods --as=system:serviceaccount:kube-system:kube-node-ready-controller
 ```
 
-### DaemonSet Mode
-
-#### Pod Doesn't Schedule on New Node
-```bash
-# Check if node has the verified label already
-kubectl get nodes -L node-ready/verified
-
-# Check DaemonSet nodeAffinity
-kubectl get ds -n kube-system kube-node-ready -o yaml | grep -A 10 affinity
-```
-
-#### Verification Fails
-```bash
-# Check pod logs
-kubectl logs -n kube-system -l app.kubernetes.io/name=kube-node-ready
-
-# Check node taints
-kubectl describe node <node-name> | grep Taints
-
-# Manually test DNS from pod
-kubectl exec -n kube-system <pod-name> -- nslookup kubernetes.default.svc.cluster.local
-```
-
-#### Pod Doesn't Terminate After Success
-```bash
-# Verify label was added
-kubectl get node <node-name> --show-labels | grep verified
-
-# Force label addition (testing only)
-kubectl label node <node-name> node-ready/verified=true
-
-# Pod should terminate automatically
-```
-
 ### Re-run Verification
 ```bash
 # Remove the verified label
 kubectl label node <node-name> node-ready/verified-
-
-# Controller mode: Controller will create new worker pod automatically
-# DaemonSet mode: New pod will be scheduled automatically
 
 # Watch for new pods
 kubectl get pods -n kube-system -w
@@ -577,20 +511,6 @@ make build-worker
 NODE_NAME=my-node ./examples/run-worker-local.sh
 ```
 
-#### Dry-Run Mode (DaemonSet)
-Test the daemonset binary locally without modifying cluster nodes:
-
-```bash
-# Build daemonset binary
-make build
-
-# Run with dry-run flag
-./bin/kube-node-ready --dry-run --log-format=console
-
-# With debug logging
-./bin/kube-node-ready --dry-run --log-level=debug --log-format=console
-```
-
 **Dry-run mode:**
 - ✅ Performs all network verification checks (DNS, network connectivity)
 - ✅ Works with local kubeconfig (if available)
@@ -607,7 +527,6 @@ make build-all
 # Build specific binary
 make build-controller  # Controller
 make build-worker      # Worker
-make build             # DaemonSet (legacy)
 
 # Build with version information
 VERSION=1.0.0 make build-all
@@ -689,20 +608,11 @@ config:
 - **Worker pods**: ~64Mi memory, ~50m CPU (per verification, then terminated)
 - **After verification**: Only controller remains running
 
-### DaemonSet Mode
-- **During verification**: ~64Mi memory, ~50m CPU per node
-- **After verification**: 0 (pod terminated)
-
 ### Cluster Impact
 **Controller Mode:**
 - 10 nodes: Controller + 64Mi per active verification
 - 1000 nodes: Controller + ~64Gi during bulk scaling, then just controller
 - Ongoing cost: Only controller (~100Mi)
-
-**DaemonSet Mode:**
-- 10 nodes: ~640Mi during verification, then 0
-- 1000 nodes: ~64Gi during bulk scaling, then 0
-- Zero ongoing cost after verification complete
 
 ## License
 AGPL 3.0 License - see LICENSE file for details

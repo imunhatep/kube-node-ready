@@ -1,45 +1,14 @@
 # kube-node-ready Helm Chart
 
-Helm chart for deploying kube-node-ready, a Kubernetes node network verification system.
-
-## Deployment Modes
-
-This chart supports **two deployment modes**:
-
-| Mode | Description | Use Case |
-|------|-------------|----------|
-| **`daemonset`** (default) | DaemonSet runs continuously on each unverified node | Static clusters, continuous monitoring |
-| **`controller`** | Controller creates worker pods on-demand | Dynamic clusters with autoscaling (Karpenter, etc.) |
-
-**Quick Mode Selection:**
-```bash
-# DaemonSet mode (default)
-helm install kube-node-ready ./deploy/helm/kube-node-ready \
-  --namespace kube-system
-
-# Controller mode
-helm install kube-node-ready ./deploy/helm/kube-node-ready \
-  --namespace kube-system \
-  --set deploymentMode=controller
-```
-
-See [Deployment Modes Guide](../../../docs/HELM_DEPLOYMENT_MODES.md) for detailed comparison.
+Helm chart for deploying kube-node-ready, a Kubernetes node network verification system using the Controller + Worker architecture.
 
 ## Installation
 
-### Install DaemonSet Mode (Default)
+### Install kube-node-ready
 ```bash
 helm install kube-node-ready ./deploy/helm/kube-node-ready \
   --namespace kube-system \
   --create-namespace
-```
-
-### Install Controller Mode
-```bash
-helm install kube-node-ready ./deploy/helm/kube-node-ready \
-  --namespace kube-system \
-  --create-namespace \
-  --set deploymentMode=controller
 ```
 
 ### Install with Custom Values
@@ -71,7 +40,6 @@ Enable automatic metrics discovery with Prometheus Operator:
 ```bash
 helm install kube-node-ready ./deploy/helm/kube-node-ready \
   --namespace kube-system \
-  --set deploymentMode=controller \
   --set controller.metrics.serviceMonitor.enabled=true \
   --set controller.metrics.serviceMonitor.labels.prometheus=kube-prometheus
 ```
@@ -89,15 +57,7 @@ controller:
         prometheus: kube-prometheus  # Match Prometheus selector
 ```
 
-See [SERVICEMONITOR.md](../../../docs/SERVICEMONITOR.md) for detailed configuration.
-
 ## Configuration
-
-### Deployment Mode Selection
-
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `deploymentMode` | Deployment mode: `daemonset` or `controller` | `daemonset` |
 
 ### Common Configuration
 
@@ -110,11 +70,8 @@ See [SERVICEMONITOR.md](../../../docs/SERVICEMONITOR.md) for detailed configurat
 
 ### Controller Configuration (Optional)
 
-Enable with `controller.enabled=true` to deploy the controller component.
-
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `controller.enabled` | Enable controller deployment | `false` |
 | `controller.replicas` | Number of controller replicas | `1` |
 | `controller.image.repository` | Controller image repository | `ghcr.io/imunhatep/kube-node-ready` |
 | `controller.image.tag` | Controller image tag | `0.2.6` |
@@ -234,78 +191,88 @@ The controller reads configuration from a ConfigMap mounted as `/etc/kube-node-r
 | `nodeSelector` | Node selector | `{}` |
 | `priorityClassName` | Priority class name | `"system-node-critical"` |
 
-### DaemonSet
-
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `updateStrategy.type` | Update strategy | `RollingUpdate` |
-| `updateStrategy.rollingUpdate.maxUnavailable` | Max unavailable | `1` |
-| `podAnnotations` | Pod annotations | `{}` |
-
 ## Examples
 
-### Deploy with Controller
+### Basic Installation
 
-Enable the controller component for centralized node management:
-
-```yaml
-controller:
-  enabled: true
-  config:
-    workerImage: "ghcr.io/imunhatep/kube-node-ready:0.2.6"
-    maxRetries: 5
-    reconcileInterval: "30s"
-    logLevel: "info"
-```
-
-Install with controller:
+Install with default controller configuration:
 
 ```bash
 helm install kube-node-ready ./deploy/helm/kube-node-ready \
-  --namespace kube-system \
-  --set controller.enabled=true
+  --namespace kube-system
+```
+
+### Controller Configuration
+
+Configure the controller component:
+
+```yaml
+controller:
+  config:
+    worker:
+      image:
+        repository: "ghcr.io/imunhatep/kube-node-ready"
+        tag: "0.3.0"
+      timeoutSeconds: 300
+    reconciliation:
+      maxRetries: 5
+      intervalSeconds: 30
+    logging:
+      level: "info"
 ```
 
 ### Custom DNS Tests
 ```yaml
-config:
-  dnsTestDomains:
-    - kubernetes.default.svc.cluster.local
-    - cloudflare.com
-    - 1.1.1.1
+worker:
+  config:
+    dnsTestDomains:
+      - kubernetes.default.svc.cluster.local
+      - cloudflare.com
+      - 1.1.1.1
 ```
 
 ### Increased Retries
 ```yaml
-config:
-  maxRetries: 10
-  initialTimeout: "600s"
+controller:
+  config:
+    reconciliation:
+      maxRetries: 10
+    worker:
+      timeoutSeconds: 600
 ```
 
-### Custom Taint
+### Custom Taint and Labels
 ```yaml
-config:
-  taintKey: "custom/unverified"
-  taintValue: "pending"
-  verifiedLabel: "custom/verified"
+controller:
+  config:
+    nodeManagement:
+      taints:
+        - key: "custom/unverified"
+          value: "pending"
+          effect: "NoSchedule"
+      verifiedLabel:
+        key: "custom/verified"
+        value: "ready"
 ```
 
 ### Development Logging
 ```yaml
-config:
-  logLevel: "debug"
-  logFormat: "console"
+controller:
+  config:
+    logging:
+      level: "debug"
+      format: "console"
 ```
 
 ### Resource Limits
 ```yaml
-resources:
-  requests:
-    cpu: 100m
-    memory: 128Mi
-  limits:
-    cpu: 200m
-    memory: 256Mi
+controller:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
 ```
 
 ## Upgrade
@@ -331,35 +298,40 @@ kubectl label nodes --all node-ready/verified-
 
 ## Troubleshooting
 
-### Check DaemonSet Status
+### View Controller
 ```bash
-kubectl get daemonset -n kube-system kube-node-ready
-kubectl describe daemonset -n kube-system kube-node-ready
+kubectl get deployment -n kube-system -l app.kubernetes.io/component=controller
+kubectl get pods -n kube-system -l app.kubernetes.io/component=controller
 ```
 
-### View Pods
+### View Worker Pods
 ```bash
-kubectl get pods -n kube-system -l app.kubernetes.io/name=kube-node-ready
+kubectl get pods -n kube-system -l app.kubernetes.io/component=worker
 ```
 
 ### Check Logs
 ```bash
-kubectl logs -n kube-system -l app.kubernetes.io/name=kube-node-ready --tail=100
+# Controller logs
+kubectl logs -n kube-system -l app.kubernetes.io/component=controller --tail=100
+
+# Worker logs
+kubectl logs -n kube-system -l app.kubernetes.io/component=worker --tail=100
 ```
 
 ### Verify RBAC
 ```bash
-kubectl get clusterrole kube-node-ready -o yaml
-kubectl get clusterrolebinding kube-node-ready -o yaml
+kubectl get clusterrole kube-node-ready-controller -o yaml
+kubectl get clusterrole kube-node-ready-worker -o yaml
+kubectl get clusterrolebinding kube-node-ready-controller -o yaml
 ```
 
 ### Test on Specific Node
 ```bash
-# Label a node to force re-verification
+# Remove verified label to force re-verification
 kubectl label node <node-name> node-ready/verified-
 
-# Watch pod get scheduled
-kubectl get pods -n kube-system -l app.kubernetes.io/name=kube-node-ready -w
+# Watch controller create worker pod
+kubectl get pods -n kube-system -l app.kubernetes.io/component=worker -w
 ```
 
 ## Values File Reference

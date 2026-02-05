@@ -11,14 +11,13 @@ This guide will help you get kube-node-ready up and running in minutes.
 
 ## Step 1: Install kube-node-ready
 
-### Option A: Controller Mode (Recommended)
+### Option A: Controller Mode (Default)
 
 ```bash
 # Install the Controller + Worker architecture
 helm install kube-node-ready ./deploy/helm/kube-node-ready \
   --namespace kube-system \
-  --create-namespace \
-  --set deploymentMode=controller
+  --create-namespace
 
 # Verify installation
 kubectl get deployment -n kube-system kube-node-ready-controller
@@ -26,27 +25,12 @@ kubectl get pods -n kube-system -l app.kubernetes.io/component=controller
 kubectl get configmap -n kube-system kube-node-ready-controller
 ```
 
-### Option B: DaemonSet Mode (Legacy)
-
-```bash
-# Install the DaemonSet (legacy mode)
-helm install kube-node-ready ./deploy/helm/kube-node-ready \
-  --namespace kube-system \
-  --create-namespace \
-  --set deploymentMode=daemonset
-
-# Verify installation
-kubectl get daemonset -n kube-system kube-node-ready
-kubectl get pods -n kube-system -l app.kubernetes.io/name=kube-node-ready
-```
-
-### Option C: Using kubectl
+### Option B: Using kubectl
 
 ```bash
 # Generate manifests for controller mode
 helm template kube-node-ready ./deploy/helm/kube-node-ready \
-  --namespace kube-system \
-  --set deploymentMode=controller > kube-node-ready-controller.yaml
+  --namespace kube-system > kube-node-ready-controller.yaml
 
 # Apply manifests
 kubectl apply -f kube-node-ready-controller.yaml
@@ -80,7 +64,7 @@ envsubst < examples/karpenter-nodepool.yaml | kubectl apply -f -
 
 ## Step 3: Test the Verification
 
-### With Controller Mode
+### Test with Controller Mode
 
 ```bash
 # Pick an existing node
@@ -106,25 +90,6 @@ kubectl describe node $NODE_NAME | grep Taints
 kubectl get pods -n kube-system -l app.kubernetes.io/component=worker
 ```
 
-### Manual Test (DaemonSet Mode)
-
-```bash
-# Pick an existing node
-NODE_NAME=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
-
-# Add the taint manually
-kubectl taint node $NODE_NAME node-ready/unverified=true:NoSchedule
-
-# kube-node-ready pod should schedule automatically
-kubectl get pods -n kube-system -l app.kubernetes.io/name=kube-node-ready -w
-
-# Watch verification complete
-kubectl logs -n kube-system -l app.kubernetes.io/name=kube-node-ready -f
-
-# After ~30 seconds, taint should be removed and label added
-kubectl get node $NODE_NAME -o yaml | grep -A 5 "labels:"
-kubectl describe node $NODE_NAME | grep Taints
-```
 
 ### With Karpenter
 
@@ -192,26 +157,13 @@ kubectl logs -n kube-system -l app.kubernetes.io/component=worker --tail=100
 kubectl logs -n kube-system -l app.kubernetes.io/component=controller -f
 ```
 
-**DaemonSet Mode:**
-```bash
-# Recent logs
-kubectl logs -n kube-system -l app.kubernetes.io/name=kube-node-ready --tail=100
-
-# Follow logs
-kubectl logs -n kube-system -l app.kubernetes.io/name=kube-node-ready -f
-
-# Logs from all pods
-kubectl logs -n kube-system -l app.kubernetes.io/name=kube-node-ready --all-containers=true
-```
-
 ### Force Re-verification
 
 ```bash
 # Remove verified label from a node
 kubectl label node <node-name> node-ready/verified-
 
-# Controller mode: Controller will create new worker pod automatically
-# DaemonSet mode: Pod will be scheduled automatically
+# Controller will create new worker pod automatically
 kubectl get pods -n kube-system -w
 ```
 
@@ -230,23 +182,12 @@ curl http://localhost:8080/metrics | grep kube_node_ready
 kubectl describe deployment -n kube-system kube-node-ready-controller
 ```
 
-**DaemonSet Mode:**
-```bash
-# DaemonSet status
-kubectl get daemonset -n kube-system kube-node-ready
-
-# Detailed info
-kubectl describe daemonset -n kube-system kube-node-ready
-```
-
 ### Check RBAC
 ```bash
-kubectl get clusterrole kube-node-ready -o yaml
-kubectl get clusterrolebinding kube-node-ready -o yaml
-
-# For controller mode, also check:
 kubectl get clusterrole kube-node-ready-controller -o yaml
+kubectl get clusterrolebinding kube-node-ready-controller -o yaml
 kubectl get clusterrole kube-node-ready-worker -o yaml
+kubectl get clusterrolebinding kube-node-ready-worker -o yaml
 ```
 
 ## Common Issues
@@ -355,7 +296,6 @@ You can also create your own custom configuration:
 
 ```yaml
 # values-custom.yaml
-deploymentMode: controller
 
 controller:
   config:

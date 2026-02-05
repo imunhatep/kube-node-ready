@@ -1,4 +1,4 @@
-{{- if and (eq .Values.deploymentMode "controller") .Values.controller.metrics.serviceMonitor.enabled }}
+{{- if .Values.controller.metrics.serviceMonitor.enabled }}
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:

@@ -2,9 +2,7 @@
 # Save as values-custom.yaml and use with:
 # helm install kube-node-ready ./deploy/helm/kube-node-ready --values values-custom.yaml
 
-# Use controller mode (recommended)
-deploymentMode: controller
-
+# Controller configuration
 controller:
   # Controller deployment configuration
   replicas: 1

@@ -2,5 +2,5 @@
 # https://github.com/artifacthub/hub/blob/master/docs/metadata/artifacthub-repo.yml
 repositoryID: kube-node-ready
 owners:
-  - name: imunhatep
+  - name: Artyom Suharev
     email: 432393+imunhatep@users.noreply.github.com

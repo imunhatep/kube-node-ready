@@ -9,6 +9,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const RetryBackoffExponential = "exponential"
+const RetryBackoffLinear = "linear"
+
 // JobConfig holds job-specific configuration
 type JobConfig struct {
 	ActiveDeadlineSeconds   *int32 `yaml:"activeDeadlineSeconds"`   // Job timeout (nil for no timeout)

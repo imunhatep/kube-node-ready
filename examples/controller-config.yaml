@@ -62,14 +62,11 @@ nodeManagement:
   deleteFailedNodes: false  # Set to true to auto-delete failed nodes (DANGEROUS)
 
   # Taints that indicate unverified nodes (will be removed on success)
-  taints:
-    - key: "node-ready/unverified"
-      value: "true"
-      effect: "NoSchedule"
+  taints: []
     # Additional taints can be configured:
-    # - key: "company.com/network-unverified"
-    #   value: "true"
-    #   effect: "NoExecute"
+    #- key: "node-ready/unverified"
+    #  value: "true"
+    #  effect: "NoSchedule"
 
   # Label added to verified nodes
   verifiedLabel:

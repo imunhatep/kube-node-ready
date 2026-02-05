@@ -1,4 +1,3 @@
-{{- if  (eq .Values.deploymentMode "controller") }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -190,4 +189,3 @@ data:
       {{- end }}
       qps: {{ .Values.controller.config.kubernetes.qps }}
       burst: {{ .Values.controller.config.kubernetes.burst }}
-{{- end }}
