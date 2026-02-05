@@ -1,0 +1,195 @@
+# Example Helm Values with Custom Init Containers
+# Save as values-custom.yaml and use with:
+# helm install kube-node-ready ./deploy/helm/kube-node-ready --values values-custom.yaml
+
+# Use controller mode (recommended)
+deploymentMode: controller
+
+controller:
+  # Controller deployment configuration
+  replicas: 1
+  image:
+    repository: ghcr.io/imunhatep/kube-node-ready
+    tag: "0.3.0"
+    pullPolicy: IfNotPresent
+
+  # High availability configuration
+  leaderElection:
+    enabled: true
+
+  # Controller runtime configuration
+  config:
+    # Worker pod configuration
+    worker:
+      image:
+        repository: ghcr.io/imunhatep/kube-node-ready
+        tag: "0.3.0"
+        pullPolicy: IfNotPresent
+      timeoutSeconds: 300
+      priorityClassName: system-node-critical
+
+      # Worker pod resource configuration
+      resources:
+        requests:
+          cpu: "50m"
+          memory: "64Mi"
+        limits:
+          memory: "128Mi"
+
+      # Additional tolerations for worker pods
+      # This allows workers to schedule on nodes with additional taints
+      tolerations:
+        # Example: Tolerate spot instance taints
+        - key: "karpenter.sh/capacity-type"
+          operator: "Equal"
+          value: "spot"
+          effect: "NoSchedule"
+
+        # Example: Tolerate all taints (DaemonSet-like behavior)
+        # Uncomment to allow workers on any node regardless of taints
+        # - operator: "Exists"
+        #   effect: ""
+
+      # Custom init containers for extended validation
+      initContainers:
+        # Network connectivity validation
+        - name: network-check
+          image: busybox:latest
+          command: ["/bin/sh", "-c"]
+          args: ["ping -c 3 -W 5 internal-api.company.com && echo 'Network connectivity OK'"]
+          env:
+            - name: TIMEOUT
+              value: "15"
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "16Mi"
+            limits:
+              memory: "32Mi"
+          securityContext:
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+
+        # Storage validation (check if required directories exist)
+        - name: storage-check
+          image: busybox:latest
+          command: ["/bin/sh", "-c"]
+          args: |
+            - |
+              echo "Checking required storage paths..."
+              test -d /host/var/lib/kubelet || (echo "ERROR: kubelet directory not found" && exit 1)
+              test -d /host/var/lib/containerd || (echo "ERROR: containerd directory not found" && exit 1)
+              test -w /host/var/log || (echo "ERROR: log directory not writable" && exit 1)
+              echo "Storage validation passed"
+          volumeMounts:
+            - name: host-var
+              mountPath: /host/var
+              readOnly: true
+          securityContext:
+            privileged: false
+            readOnlyRootFilesystem: true
+
+        # GPU validation (only runs on GPU nodes)
+        - name: gpu-check
+          image: nvidia/cuda:11.8-base-ubuntu20.04
+          command: ["sh", "-c"]
+          args: ["nvidia-smi --query-gpu=name,driver_version --format=csv,noheader || echo 'No GPU detected, skipping GPU validation'"]
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+          securityContext:
+            privileged: false
+
+        # Custom health endpoint validation
+        - name: health-api-check
+          image: curlimages/curl:latest
+          command: ["curl"]
+          args: [
+            "-f",
+            "--max-time", "10",
+            "--retry", "3",
+            "--retry-delay", "2",
+            "http://health-service.monitoring.svc.cluster.local:8080/health"
+          ]
+          env:
+            - name: HEALTH_ENDPOINT
+              value: "http://health-service.monitoring.svc.cluster.local:8080/health"
+          resources:
+            requests:
+              cpu: "5m"
+              memory: "8Mi"
+            limits:
+              memory: "16Mi"
+
+        # Security compliance check (example with custom tool)
+        - name: security-baseline
+          image: your-registry/security-scanner:v1.0.0
+          command: ["/usr/bin/security-scan"]
+          args: ["--baseline", "cis-k8s", "--node-check"]
+          volumeMounts:
+            - name: host-proc
+              mountPath: /host/proc
+              readOnly: true
+          securityContext:
+            privileged: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+          env:
+            - name: SCAN_MODE
+              value: "node-validation"
+
+      # Additional volumes for init containers (define as needed)
+      # Note: This would need to be implemented in the Helm template
+      # volumes:
+      #   - name: host-var
+      #     hostPath:
+      #       path: /var
+      #   - name: host-proc
+      #     hostPath:
+      #       path: /proc
+
+    # Reconciliation settings
+    reconciliation:
+      intervalSeconds: 10
+      maxRetries: 3  # Reduced for faster feedback with custom checks
+      retryBackoff: exponential
+
+    # Node management
+    nodeManagement:
+      deleteFailedNodes: false  # Set to true to auto-delete failed nodes
+      taints:
+        - key: "node-ready/unverified"
+          value: "true"
+          effect: "NoSchedule"
+      verifiedLabel:
+        key: "node-ready/verified"
+        value: "true"
+
+    # Metrics configuration
+    metrics:
+      enabled: true
+      port: 8080
+
+    # Logging configuration
+    logging:
+      level: "info"
+      format: "json"
+
+# Worker ConfigMap configuration (for runtime behavior)
+worker:
+  config:
+    # Reduce retries since we have more comprehensive init container validation
+    maxRetries: 1
+    retryBackoff: "linear"
+    checkTimeoutSeconds: 10
+
+    # DNS test domains
+    dnsTestDomains:
+      - "kubernetes.default.svc.cluster.local"
+      - "google.com"
+
+    # Custom logging for workers
+    logging:
+      level: "info"
+      format: "json"

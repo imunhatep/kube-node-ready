@@ -155,6 +155,118 @@ func (w *WorkerManager) buildTolerations() []corev1.Toleration {
 	return tolerations
 }
 
+// buildInitContainers constructs init containers for worker pods from configuration
+func (w *WorkerManager) buildInitContainers() []corev1.Container {
+	if len(w.config.Worker.InitContainers) == 0 {
+		return nil
+	}
+
+	initContainers := make([]corev1.Container, 0, len(w.config.Worker.InitContainers))
+
+	for _, initCfg := range w.config.Worker.InitContainers {
+		container := corev1.Container{
+			Name:  initCfg.Name,
+			Image: initCfg.Image,
+		}
+
+		// Set command and args
+		if len(initCfg.Command) > 0 {
+			container.Command = initCfg.Command
+		}
+		if len(initCfg.Args) > 0 {
+			container.Args = initCfg.Args
+		}
+
+		// Set working directory
+		if initCfg.WorkingDir != "" {
+			container.WorkingDir = initCfg.WorkingDir
+		}
+
+		// Set environment variables
+		if len(initCfg.Env) > 0 {
+			container.Env = make([]corev1.EnvVar, 0, len(initCfg.Env))
+			for _, envCfg := range initCfg.Env {
+				container.Env = append(container.Env, corev1.EnvVar{
+					Name:  envCfg.Name,
+					Value: envCfg.Value,
+				})
+			}
+		}
+
+		// Set volume mounts
+		if len(initCfg.VolumeMounts) > 0 {
+			container.VolumeMounts = make([]corev1.VolumeMount, 0, len(initCfg.VolumeMounts))
+			for _, vmCfg := range initCfg.VolumeMounts {
+				volumeMount := corev1.VolumeMount{
+					Name:      vmCfg.Name,
+					MountPath: vmCfg.MountPath,
+				}
+				if vmCfg.ReadOnly {
+					volumeMount.ReadOnly = vmCfg.ReadOnly
+				}
+				if vmCfg.SubPath != "" {
+					volumeMount.SubPath = vmCfg.SubPath
+				}
+				container.VolumeMounts = append(container.VolumeMounts, volumeMount)
+			}
+		}
+
+		// Set resources
+		if initCfg.Resources != nil {
+			container.Resources = corev1.ResourceRequirements{}
+
+			// Set resource requests
+			if initCfg.Resources.Requests.CPU != "" || initCfg.Resources.Requests.Memory != "" {
+				container.Resources.Requests = make(corev1.ResourceList)
+				if initCfg.Resources.Requests.CPU != "" {
+					container.Resources.Requests[corev1.ResourceCPU] = resource.MustParse(initCfg.Resources.Requests.CPU)
+				}
+				if initCfg.Resources.Requests.Memory != "" {
+					container.Resources.Requests[corev1.ResourceMemory] = resource.MustParse(initCfg.Resources.Requests.Memory)
+				}
+			}
+
+			// Set resource limits
+			if initCfg.Resources.Limits.CPU != "" || initCfg.Resources.Limits.Memory != "" {
+				container.Resources.Limits = make(corev1.ResourceList)
+				if initCfg.Resources.Limits.CPU != "" {
+					container.Resources.Limits[corev1.ResourceCPU] = resource.MustParse(initCfg.Resources.Limits.CPU)
+				}
+				if initCfg.Resources.Limits.Memory != "" {
+					container.Resources.Limits[corev1.ResourceMemory] = resource.MustParse(initCfg.Resources.Limits.Memory)
+				}
+			}
+		}
+
+		// Set security context
+		if initCfg.SecurityContext != nil {
+			container.SecurityContext = &corev1.SecurityContext{}
+			if initCfg.SecurityContext.Privileged != nil {
+				container.SecurityContext.Privileged = initCfg.SecurityContext.Privileged
+			}
+			if initCfg.SecurityContext.ReadOnlyRootFilesystem != nil {
+				container.SecurityContext.ReadOnlyRootFilesystem = initCfg.SecurityContext.ReadOnlyRootFilesystem
+			}
+			if initCfg.SecurityContext.RunAsNonRoot != nil {
+				container.SecurityContext.RunAsNonRoot = initCfg.SecurityContext.RunAsNonRoot
+			}
+			if initCfg.SecurityContext.RunAsUser != nil {
+				container.SecurityContext.RunAsUser = initCfg.SecurityContext.RunAsUser
+			}
+			if initCfg.SecurityContext.RunAsGroup != nil {
+				container.SecurityContext.RunAsGroup = initCfg.SecurityContext.RunAsGroup
+			}
+			if initCfg.SecurityContext.AllowPrivilegeEscalation != nil {
+				container.SecurityContext.AllowPrivilegeEscalation = initCfg.SecurityContext.AllowPrivilegeEscalation
+			}
+		}
+
+		initContainers = append(initContainers, container)
+	}
+
+	return initContainers
+}
+
 // WorkerJobStatus represents the status of a worker job
 type WorkerJobStatus struct {
 	Active     int32
@@ -262,7 +374,8 @@ func (w *WorkerManager) CreateWorkerJob(ctx context.Context, nodeName string) (*
 					NodeSelector: map[string]string{
 						"kubernetes.io/hostname": nodeName,
 					},
-					Tolerations: tolerations,
+					Tolerations:    tolerations,
+					InitContainers: w.buildInitContainers(),
 					Containers: []corev1.Container{
 						{
 							Name:            "worker",

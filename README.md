@@ -60,6 +60,7 @@ When new nodes join a Kubernetes cluster, they may have networking issues such a
 
 ### Verification Capabilities
 - ✅ **Comprehensive checks** - DNS, Kubernetes API, network connectivity, service discovery
+- ✅ **Custom init containers** - Extensible verification with custom validation logic
 - ✅ **Configurable timeouts** - Per-check and overall verification timeouts
 - ✅ **Multi-architecture** - Supports amd64 and arm64 (AWS Graviton, GCP Tau, Azure Ampere)
 - ✅ **Production-ready** - Security hardened, minimal permissions
@@ -324,6 +325,72 @@ See [examples/karpenter-example.yaml](examples/karpenter-example.yaml) for NodeC
 - Tests: Query Kubernetes services and endpoints
 - Timeout: Configurable (default: 10 seconds)
 - Purpose: Verify service mesh works
+
+### 5. Custom Init Containers (Extensibility)
+Custom init containers allow extending verification with domain-specific checks:
+
+**Configuration:**
+```yaml
+controller:
+  config:
+    worker:
+      initContainers:
+        # Custom network connectivity check
+        - name: custom-network-check
+          image: busybox:latest
+          command: ["/bin/sh", "-c"]
+          args: ["ping -c 3 internal-service.company.com"]
+          
+        # Storage validation
+        - name: storage-check
+          image: busybox:latest
+          command: ["/bin/sh", "-c"]
+          args: ["test -d /host/var/lib/kubelet"]
+          volumeMounts:
+            - name: host-kubelet
+              mountPath: /host/var/lib/kubelet
+              readOnly: true
+          securityContext:
+            privileged: false
+            readOnlyRootFilesystem: true
+            
+        # GPU availability check
+        - name: gpu-check
+          image: nvidia/cuda:11.0-base
+          command: ["nvidia-smi"]
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+
+        # Custom API validation
+        - name: api-check
+          image: curlimages/curl:latest
+          command: ["curl"]
+          args: ["-f", "http://internal-api.company.com/health"]
+          env:
+            - name: API_TOKEN
+              value: "secret-token"
+```
+
+**Benefits:**
+- ✅ **Custom validation logic** for company-specific requirements
+- ✅ **Fail-fast behavior** - Any init container failure prevents node verification
+- ✅ **Flexible integration** - Network, storage, security, compliance checks
+- ✅ **Standard Kubernetes** - Uses familiar init container semantics
+
+**Use Cases:**
+- **Storage drivers** - Validate CSI driver availability
+- **Network policies** - Test firewall rules and connectivity
+- **Security compliance** - Verify security agent installation
+- **Hardware validation** - Check GPU, special devices, or firmware
+- **Company policies** - Custom authentication, VPN, or compliance checks
+- **Service mesh** - Validate Istio, Linkerd, or custom mesh connectivity
+
+**Execution Order:**
+1. Init containers execute sequentially (must all succeed)
+2. Main verification container runs (DNS, K8s API, network, service discovery)
+3. If all succeed → Node verified (taint removed, label added)
+4. If any fail → Retry logic applies or node deletion (if configured)
 
 ## Monitoring
 

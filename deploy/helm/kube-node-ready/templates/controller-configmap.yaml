@@ -45,6 +45,90 @@ data:
           {{- end }}
       {{- end }}
       {{- end }}
+      {{- if .Values.controller.config.worker.initContainers }}
+      initContainers:
+      {{- range .Values.controller.config.worker.initContainers }}
+        - name: {{ .name | quote }}
+          image: {{ .image | quote }}
+          {{- if .command }}
+          command:
+          {{- range .command }}
+            - {{ . | quote }}
+          {{- end }}
+          {{- end }}
+          {{- if .args }}
+          args:
+          {{- range .args }}
+            - {{ . | quote }}
+          {{- end }}
+          {{- end }}
+          {{- if .workingDir }}
+          workingDir: {{ .workingDir | quote }}
+          {{- end }}
+          {{- if .env }}
+          env:
+          {{- range .env }}
+            - name: {{ .name | quote }}
+              value: {{ .value | quote }}
+          {{- end }}
+          {{- end }}
+          {{- if .volumeMounts }}
+          volumeMounts:
+          {{- range .volumeMounts }}
+            - name: {{ .name | quote }}
+              mountPath: {{ .mountPath | quote }}
+              {{- if .readOnly }}
+              readOnly: {{ .readOnly }}
+              {{- end }}
+              {{- if .subPath }}
+              subPath: {{ .subPath | quote }}
+              {{- end }}
+          {{- end }}
+          {{- end }}
+          {{- if .resources }}
+          resources:
+            {{- if .resources.requests }}
+            requests:
+              {{- if .resources.requests.cpu }}
+              cpu: {{ .resources.requests.cpu | quote }}
+              {{- end }}
+              {{- if .resources.requests.memory }}
+              memory: {{ .resources.requests.memory | quote }}
+              {{- end }}
+            {{- end }}
+            {{- if .resources.limits }}
+            limits:
+              {{- if .resources.limits.cpu }}
+              cpu: {{ .resources.limits.cpu | quote }}
+              {{- end }}
+              {{- if .resources.limits.memory }}
+              memory: {{ .resources.limits.memory | quote }}
+              {{- end }}
+            {{- end }}
+          {{- end }}
+          {{- if .securityContext }}
+          securityContext:
+            {{- if .securityContext.privileged }}
+            privileged: {{ .securityContext.privileged }}
+            {{- end }}
+            {{- if .securityContext.readOnlyRootFilesystem }}
+            readOnlyRootFilesystem: {{ .securityContext.readOnlyRootFilesystem }}
+            {{- end }}
+            {{- if .securityContext.runAsNonRoot }}
+            runAsNonRoot: {{ .securityContext.runAsNonRoot }}
+            {{- end }}
+            {{- if .securityContext.runAsUser }}
+            runAsUser: {{ .securityContext.runAsUser }}
+            {{- end }}
+            {{- if .securityContext.runAsGroup }}
+            runAsGroup: {{ .securityContext.runAsGroup }}
+            {{- end }}
+            {{- if .securityContext.allowPrivilegeEscalation }}
+            allowPrivilegeEscalation: {{ .securityContext.allowPrivilegeEscalation }}
+            {{- end }}
+          {{- end }}
+      {{- end }}
+      {{- end }}
       {{- if .Values.controller.config.worker.job }}
       job:
         {{- if .Values.controller.config.worker.job.activeDeadlineSeconds }}

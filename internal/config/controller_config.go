@@ -21,14 +21,15 @@ type JobConfig struct {
 // This only includes pod scheduling and lifecycle configuration.
 // Worker runtime configuration (checks, DNS, etc.) is managed via separate worker ConfigMap.
 type WorkerPodConfig struct {
-	Image              ImageConfig        `yaml:"image"`
-	Namespace          string             `yaml:"namespace"`
-	ServiceAccountName string             `yaml:"serviceAccountName"`
-	PriorityClassName  string             `yaml:"priorityClassName"`
-	Resources          ResourcesConfig    `yaml:"resources"`
-	ConfigMapName      string             `yaml:"configMapName"` // Name of worker ConfigMap to mount
-	Job                JobConfig          `yaml:"job"`           // Job-specific configuration
-	Tolerations        []TolerationConfig `yaml:"tolerations"`   // Additional tolerations for worker pods
+	Image              ImageConfig           `yaml:"image"`
+	Namespace          string                `yaml:"namespace"`
+	ServiceAccountName string                `yaml:"serviceAccountName"`
+	PriorityClassName  string                `yaml:"priorityClassName"`
+	Resources          ResourcesConfig       `yaml:"resources"`
+	ConfigMapName      string                `yaml:"configMapName"`  // Name of worker ConfigMap to mount
+	Job                JobConfig             `yaml:"job"`            // Job-specific configuration
+	Tolerations        []TolerationConfig    `yaml:"tolerations"`    // Additional tolerations for worker pods
+	InitContainers     []InitContainerConfig `yaml:"initContainers"` // Custom init containers for additional verification
 }
 
 // GetTimeout returns timeout as time.Duration
@@ -74,6 +75,12 @@ type TaintConfig struct {
 	Effect string `yaml:"effect"`
 }
 
+// LabelConfig holds Kubernetes label configuration
+type LabelConfig struct {
+	Key   string `yaml:"key"`
+	Value string `yaml:"value"`
+}
+
 // TolerationConfig holds Kubernetes toleration configuration
 type TolerationConfig struct {
 	Key               string `yaml:"key"`
@@ -83,17 +90,41 @@ type TolerationConfig struct {
 	TolerationSeconds *int64 `yaml:"tolerationSeconds,omitempty"` // For NoExecute effect
 }
 
-// LabelConfig holds Kubernetes label configuration
-type LabelConfig struct {
-	Key   string `yaml:"key"`
+// InitContainerConfig holds Kubernetes init container configuration
+type InitContainerConfig struct {
+	Name            string                 `yaml:"name"`
+	Image           string                 `yaml:"image"`
+	Command         []string               `yaml:"command,omitempty"`
+	Args            []string               `yaml:"args,omitempty"`
+	Env             []EnvVarConfig         `yaml:"env,omitempty"`
+	VolumeMounts    []VolumeMountConfig    `yaml:"volumeMounts,omitempty"`
+	Resources       *ResourcesConfig       `yaml:"resources,omitempty"`
+	SecurityContext *SecurityContextConfig `yaml:"securityContext,omitempty"`
+	WorkingDir      string                 `yaml:"workingDir,omitempty"`
+}
+
+// EnvVarConfig holds environment variable configuration
+type EnvVarConfig struct {
+	Name  string `yaml:"name"`
 	Value string `yaml:"value"`
 }
 
-// NodeManagementConfig holds node management settings
-type NodeManagementConfig struct {
-	DeleteFailedNodes bool          `yaml:"deleteFailedNodes"`
-	Taints            []TaintConfig `yaml:"taints"`
-	VerifiedLabel     LabelConfig   `yaml:"verifiedLabel"`
+// VolumeMountConfig holds volume mount configuration
+type VolumeMountConfig struct {
+	Name      string `yaml:"name"`
+	MountPath string `yaml:"mountPath"`
+	ReadOnly  bool   `yaml:"readOnly,omitempty"`
+	SubPath   string `yaml:"subPath,omitempty"`
+}
+
+// SecurityContextConfig holds security context configuration
+type SecurityContextConfig struct {
+	Privileged               *bool  `yaml:"privileged,omitempty"`
+	ReadOnlyRootFilesystem   *bool  `yaml:"readOnlyRootFilesystem,omitempty"`
+	RunAsNonRoot             *bool  `yaml:"runAsNonRoot,omitempty"`
+	RunAsUser                *int64 `yaml:"runAsUser,omitempty"`
+	RunAsGroup               *int64 `yaml:"runAsGroup,omitempty"`
+	AllowPrivilegeEscalation *bool  `yaml:"allowPrivilegeEscalation,omitempty"`
 }
 
 // MetricsConfig holds metrics configuration
@@ -118,6 +149,13 @@ type KubernetesConfig struct {
 	KubeconfigPath string `yaml:"kubeconfigPath"`
 	QPS            int    `yaml:"qps"`
 	Burst          int    `yaml:"burst"`
+}
+
+// NodeManagementConfig holds node management configuration
+type NodeManagementConfig struct {
+	DeleteFailedNodes bool          `yaml:"deleteFailedNodes"`
+	Taints            []TaintConfig `yaml:"taints"`
+	VerifiedLabel     LabelConfig   `yaml:"verifiedLabel"`
 }
 
 // ControllerConfig holds configuration for the controller component

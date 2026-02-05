@@ -1,0 +1,49 @@
+# Simple Init Container Examples for kube-node-ready
+# Save as values-simple-init.yaml and use with:
+# helm install kube-node-ready ./deploy/helm/kube-node-ready --values values-simple-init.yaml
+
+deploymentMode: controller
+
+controller:
+  config:
+    worker:
+      # Simple init container examples
+      initContainers:
+        # Example 1: Basic network connectivity test
+        - name: ping-test
+          image: busybox:latest
+          command: ["ping"]
+          args: ["-c", "3", "8.8.8.8"]
+
+        # Example 2: Check if a service is reachable
+        - name: service-check
+          image: busybox:latest
+          command: ["/bin/sh", "-c"]
+          args: ["wget --timeout=10 --tries=1 -O- http://kubernetes.default.svc.cluster.local"]
+
+        # Example 3: Verify DNS resolution
+        - name: dns-check
+          image: busybox:latest
+          command: ["nslookup"]
+          args: ["kubernetes.default.svc.cluster.local"]
+
+      # Basic tolerations
+      tolerations:
+        - key: "node.kubernetes.io/not-ready"
+          operator: "Exists"
+          effect: "NoSchedule"
+
+    # Standard reconciliation settings
+    reconciliation:
+      maxRetries: 5
+      retryBackoff: exponential
+
+    # Node management with standard labels
+    nodeManagement:
+      taints:
+        - key: "node-ready/unverified"
+          value: "true"
+          effect: "NoSchedule"
+      verifiedLabel:
+        key: "node-ready/verified"
+        value: "true"

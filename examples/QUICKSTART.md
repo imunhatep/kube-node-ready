@@ -11,28 +11,45 @@ This guide will help you get kube-node-ready up and running in minutes.
 
 ## Step 1: Install kube-node-ready
 
-### Option A: Using Helm (Recommended)
+### Option A: Controller Mode (Recommended)
 
 ```bash
-# Install the DaemonSet
+# Install the Controller + Worker architecture
 helm install kube-node-ready ./deploy/helm/kube-node-ready \
   --namespace kube-system \
-  --create-namespace
+  --create-namespace \
+  --set deploymentMode=controller
+
+# Verify installation
+kubectl get deployment -n kube-system kube-node-ready-controller
+kubectl get pods -n kube-system -l app.kubernetes.io/component=controller
+kubectl get configmap -n kube-system kube-node-ready-controller
+```
+
+### Option B: DaemonSet Mode (Legacy)
+
+```bash
+# Install the DaemonSet (legacy mode)
+helm install kube-node-ready ./deploy/helm/kube-node-ready \
+  --namespace kube-system \
+  --create-namespace \
+  --set deploymentMode=daemonset
 
 # Verify installation
 kubectl get daemonset -n kube-system kube-node-ready
 kubectl get pods -n kube-system -l app.kubernetes.io/name=kube-node-ready
 ```
 
-### Option B: Using kubectl
+### Option C: Using kubectl
 
 ```bash
-# Generate manifests
+# Generate manifests for controller mode
 helm template kube-node-ready ./deploy/helm/kube-node-ready \
-  --namespace kube-system > kube-node-ready.yaml
+  --namespace kube-system \
+  --set deploymentMode=controller > kube-node-ready-controller.yaml
 
 # Apply manifests
-kubectl apply -f kube-node-ready.yaml
+kubectl apply -f kube-node-ready-controller.yaml
 ```
 
 ## Step 2: Configure Karpenter (if using)
@@ -63,7 +80,33 @@ envsubst < examples/karpenter-nodepool.yaml | kubectl apply -f -
 
 ## Step 3: Test the Verification
 
-### Manual Test (without Karpenter)
+### With Controller Mode
+
+```bash
+# Pick an existing node
+NODE_NAME=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
+
+# Add the taint manually to trigger verification
+kubectl taint node $NODE_NAME node-ready/unverified=true:NoSchedule
+
+# Controller should detect and create a worker pod
+kubectl get pods -n kube-system -l app.kubernetes.io/component=worker -w
+
+# Watch controller logs
+kubectl logs -n kube-system -l app.kubernetes.io/component=controller -f
+
+# Watch worker pod logs
+kubectl logs -n kube-system -l app.kubernetes.io/component=worker -f
+
+# After ~30 seconds, taint should be removed and label added
+kubectl get node $NODE_NAME -o yaml | grep -A 5 "labels:"
+kubectl describe node $NODE_NAME | grep Taints
+
+# Worker pod should terminate after success
+kubectl get pods -n kube-system -l app.kubernetes.io/component=worker
+```
+
+### Manual Test (DaemonSet Mode)
 
 ```bash
 # Pick an existing node
@@ -137,6 +180,19 @@ curl http://localhost:8080/metrics | grep node_check
 
 ### View Logs
 
+**Controller Mode:**
+```bash
+# Controller logs
+kubectl logs -n kube-system -l app.kubernetes.io/component=controller --tail=100
+
+# Worker logs (if any active)
+kubectl logs -n kube-system -l app.kubernetes.io/component=worker --tail=100
+
+# Follow logs
+kubectl logs -n kube-system -l app.kubernetes.io/component=controller -f
+```
+
+**DaemonSet Mode:**
 ```bash
 # Recent logs
 kubectl logs -n kube-system -l app.kubernetes.io/name=kube-node-ready --tail=100
@@ -154,22 +210,43 @@ kubectl logs -n kube-system -l app.kubernetes.io/name=kube-node-ready --all-cont
 # Remove verified label from a node
 kubectl label node <node-name> node-ready/verified-
 
-# Pod will be scheduled automatically
-kubectl get pods -n kube-system -l app.kubernetes.io/name=kube-node-ready -w
+# Controller mode: Controller will create new worker pod automatically
+# DaemonSet mode: Pod will be scheduled automatically
+kubectl get pods -n kube-system -w
 ```
 
-### Check DaemonSet Health
+### Check Health
 
+**Controller Mode:**
+```bash
+# Controller deployment status
+kubectl get deployment -n kube-system kube-node-ready-controller
+
+# Controller metrics (if enabled)
+kubectl port-forward -n kube-system deployment/kube-node-ready-controller 8080:8080
+curl http://localhost:8080/metrics | grep kube_node_ready
+
+# Detailed controller info
+kubectl describe deployment -n kube-system kube-node-ready-controller
+```
+
+**DaemonSet Mode:**
 ```bash
 # DaemonSet status
 kubectl get daemonset -n kube-system kube-node-ready
 
 # Detailed info
 kubectl describe daemonset -n kube-system kube-node-ready
+```
 
-# Check RBAC
+### Check RBAC
+```bash
 kubectl get clusterrole kube-node-ready -o yaml
 kubectl get clusterrolebinding kube-node-ready -o yaml
+
+# For controller mode, also check:
+kubectl get clusterrole kube-node-ready-controller -o yaml
+kubectl get clusterrole kube-node-ready-worker -o yaml
 ```
 
 ## Common Issues
@@ -221,30 +298,152 @@ kubectl label node <node-name> node-ready/verified=true
 
 ## Customization
 
-### Change DNS Test Domains
+### Basic Configuration
 
+**Change DNS Test Domains:**
 ```bash
 helm upgrade kube-node-ready ./deploy/helm/kube-node-ready \
   --namespace kube-system \
-  --set config.dnsTestDomains="{kubernetes.default.svc.cluster.local,cloudflare.com}"
+  --set controller.config.worker.dnsTestDomains="{kubernetes.default.svc.cluster.local,cloudflare.com}"
 ```
 
-### Increase Retries
-
+**Increase Retries:**
 ```bash
 helm upgrade kube-node-ready ./deploy/helm/kube-node-ready \
   --namespace kube-system \
-  --set config.maxRetries=10 \
-  --set config.initialTimeout=600s
+  --set controller.config.reconciliation.maxRetries=10 \
+  --set controller.config.worker.timeoutSeconds=600
 ```
 
-### Use Custom Taint
-
+**Use Custom Taint:**
 ```bash
 helm upgrade kube-node-ready ./deploy/helm/kube-node-ready \
   --namespace kube-system \
-  --set config.taintKey=my-custom/unverified \
-  --set config.verifiedLabel=my-custom/verified
+  --set controller.config.nodeManagement.taints[0].key=my-custom/unverified \
+  --set controller.config.nodeManagement.verifiedLabel.key=my-custom/verified
+```
+
+### Advanced Configuration: Custom Init Containers
+
+Add custom validation logic to worker pods with init containers:
+
+**Quick Start with Simple Init Containers:**
+```bash
+# Use the simple init container example
+helm install kube-node-ready ./deploy/helm/kube-node-ready \
+  --namespace kube-system \
+  --create-namespace \
+  --values examples/values-simple-init.yaml
+```
+
+**Advanced Setup with Comprehensive Validation:**
+```bash
+# Use the advanced custom configuration  
+helm install kube-node-ready ./deploy/helm/kube-node-ready \
+  --namespace kube-system \
+  --create-namespace \
+  --values examples/values-custom.yaml
+```
+
+**Create a values.yaml file:**
+
+For simple network and DNS validation, see `examples/values-simple-init.yaml`.
+
+For comprehensive validation including storage, GPU, and API checks, see `examples/values-custom.yaml`.
+
+You can also create your own custom configuration:
+
+```yaml
+# values-custom.yaml
+deploymentMode: controller
+
+controller:
+  config:
+    worker:
+      # Custom init containers for additional verification
+      initContainers:
+        # Network connectivity check
+        - name: network-check
+          image: busybox:latest
+          command: ["/bin/sh", "-c"]
+          args: ["ping -c 3 internal-api.company.com"]
+          
+        # Storage driver validation
+        - name: storage-check
+          image: busybox:latest
+          command: ["/bin/sh", "-c"]
+          args: ["test -d /host/var/lib/kubelet && echo 'Storage OK'"]
+          volumeMounts:
+            - name: host-kubelet
+              mountPath: /host/var/lib/kubelet
+              readOnly: true
+          securityContext:
+            privileged: false
+            readOnlyRootFilesystem: true
+            
+        # GPU validation (for GPU nodes)
+        - name: gpu-check
+          image: nvidia/cuda:11.0-base
+          command: ["nvidia-smi"]
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+              
+        # Custom API validation
+        - name: api-health-check
+          image: curlimages/curl:latest
+          command: ["curl"]
+          args: ["-f", "--max-time", "10", "http://internal-health.company.com/status"]
+          env:
+            - name: HEALTH_ENDPOINT
+              value: "http://internal-health.company.com/status"
+
+      # Tolerate all taints (similar to DaemonSet behavior)
+      tolerations:
+        - operator: "Exists"
+          effect: ""
+
+    nodeManagement:
+      # Custom verification label
+      verifiedLabel:
+        key: "company.com/node-verified"
+        value: "true"
+      # Custom taint for unverified nodes
+      taints:
+        - key: "company.com/node-unverified" 
+          value: "true"
+          effect: "NoSchedule"
+```
+
+**Apply the custom configuration:**
+```bash
+helm install kube-node-ready ./deploy/helm/kube-node-ready \
+  --namespace kube-system \
+  --create-namespace \
+  --values values-custom.yaml
+```
+
+### Configure Worker Tolerations
+
+**Tolerate all taints (DaemonSet-like behavior):**
+```bash
+helm upgrade kube-node-ready ./deploy/helm/kube-node-ready \
+  --namespace kube-system \
+  --set 'controller.config.worker.tolerations[0].operator=Exists' \
+  --set 'controller.config.worker.tolerations[0].effect='
+```
+
+**Tolerate specific taints:**
+```bash
+helm upgrade kube-node-ready ./deploy/helm/kube-node-ready \
+  --namespace kube-system \
+  --set 'controller.config.worker.tolerations[0].key=spot-instance' \
+  --set 'controller.config.worker.tolerations[0].operator=Exists' \
+  --set 'controller.config.worker.tolerations[1].key=workload-type' \
+  --set 'controller.config.worker.tolerations[1].operator=Equal' \
+  --set 'controller.config.worker.tolerations[1].value=batch' \
+  --set 'controller.config.worker.tolerations[1].effect=NoExecute' \
+  --set 'controller.config.worker.tolerations[1].tolerationSeconds=300'
 ```
 
 ## Uninstall
@@ -278,7 +477,7 @@ make build-controller
 ./examples/run-controller-local.sh
 
 # Or with a custom config file
-CONFIG_FILE=/path/to/my-config.yaml ./examples/run-controller-local.sh
+CONFIG_FILE=./examples/controller-config.yaml ./examples/run-controller-local.sh
 
 # Disable leader election for local testing (already default)
 LEADER_ELECT=false ./examples/run-controller-local.sh
@@ -293,6 +492,8 @@ The script will:
 
 **Configuration**: Edit `examples/controller-config.yaml` to customize:
 - Worker image and namespace
+- Custom init containers for extended validation
+- Additional worker pod tolerations
 - Reconciliation interval and retries
 - Node taints and labels
 - Metrics and logging settings
@@ -311,11 +512,28 @@ NODE_NAME=my-node ./examples/run-worker-local.sh
 
 ### Prerequisites for Local Running
 
-- Go 1.25+
+- Go 1.21+
 - Access to a Kubernetes cluster
 - kubectl configured with admin permissions
-- Controller needs: list/watch/patch nodes, create/delete pods
+- Controller needs: list/watch/patch nodes, create/delete jobs/pods
 - Worker needs: access to update node labels/taints
+
+### Testing Init Containers
+
+When developing custom init containers, test them independently first:
+
+```bash
+# Test a custom init container
+kubectl run test-init --rm -it --restart=Never \
+  --image=busybox:latest \
+  --command -- /bin/sh -c "ping -c 3 google.com"
+
+# Test with node affinity (replace NODE_NAME)
+kubectl run test-init --rm -it --restart=Never \
+  --image=busybox:latest \
+  --overrides='{"spec":{"nodeSelector":{"kubernetes.io/hostname":"NODE_NAME"}}}' \
+  --command -- /bin/sh -c "ping -c 3 google.com"
+```
 
 ## Getting Help
 
