@@ -10,18 +10,11 @@ echo "======================================="
 # Configuration file path
 CONFIG_FILE="${CONFIG_FILE:-./examples/controller-config.yaml}"
 
-# Controller flags
-LEADER_ELECT="${LEADER_ELECT:-false}"
-METRICS_PORT="${METRICS_PORT:-8080}"
-HEALTH_PORT="${HEALTH_PORT:-8081}"
-
 # Print configuration
 echo ""
 echo "Configuration:"
 echo "  CONFIG_FILE: ${CONFIG_FILE}"
-echo "  LEADER_ELECT: ${LEADER_ELECT}"
-echo "  METRICS_PORT: ${METRICS_PORT}"
-echo "  HEALTH_PORT: ${HEALTH_PORT}"
+echo "  (All settings including leader election, metrics, and health ports are configured via the config file)"
 echo ""
 
 # Check if config file exists
@@ -114,8 +107,9 @@ fi
 echo ""
 echo "Starting controller..."
 echo "Config file: ${CONFIG_FILE}"
-echo "Health endpoint: http://localhost:${HEALTH_PORT}/healthz"
-echo "Metrics endpoint: http://localhost:${METRICS_PORT}/metrics"
+echo "Note: Health and metrics endpoints are configured in the config file"
+echo "Default health endpoint: http://localhost:8081/healthz"
+echo "Default metrics endpoint: http://localhost:8080/metrics"
 echo ""
 echo "Press Ctrl+C to stop"
 echo "======================================="
@@ -124,9 +118,6 @@ echo ""
 # Build command line arguments
 CONTROLLER_ARGS=(
     "--config=${CONFIG_FILE}"
-    "--leader-elect=${LEADER_ELECT}"
-    "--metrics-bind-address=:${METRICS_PORT}"
-    "--health-probe-bind-address=:${HEALTH_PORT}"
     "--zap-devel=true"
     "--zap-log-level=info"
 )

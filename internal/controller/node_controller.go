@@ -5,17 +5,23 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/imunhatep/kube-node-ready/internal/k8s"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/imunhatep/kube-node-ready/internal/config"
 	"github.com/imunhatep/kube-node-ready/internal/metrics"
-	"github.com/imunhatep/kube-node-ready/internal/node"
 )
 
 // NodeReconciler reconciles Node objects
@@ -23,18 +29,18 @@ type NodeReconciler struct {
 	client.Client
 	Scheme        *runtime.Scheme
 	Config        *config.ControllerConfig
-	StateCache    *StateCache
+	StateCache    *k8s.NodeStateCache
 	WorkerManager *WorkerManager
-	NodeManager   *node.Manager
+	NodeManager   *k8s.NodeManager
 }
 
 // NewNodeReconciler creates a new NodeReconciler
-func NewNodeReconciler(client client.Client, scheme *runtime.Scheme, cfg *config.ControllerConfig, nodeManager *node.Manager) *NodeReconciler {
+func NewNodeReconciler(client client.Client, scheme *runtime.Scheme, cfg *config.ControllerConfig, nodeManager *k8s.NodeManager) *NodeReconciler {
 	return &NodeReconciler{
 		Client:        client,
 		Scheme:        scheme,
 		Config:        cfg,
-		StateCache:    NewStateCache(),
+		StateCache:    k8s.NewNodeStateCache(),
 		WorkerManager: NewWorkerManager(client, cfg),
 		NodeManager:   nodeManager,
 	}
@@ -90,9 +96,9 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	state := r.StateCache.Get(nodeEntity.Name)
 	if state == nil {
 		log.Info("New unverified nodeEntity detected", "nodeEntity", nodeEntity.Name)
-		state = &NodeState{
+		state = &k8s.NodeState{
 			NodeName:  nodeEntity.Name,
-			State:     StateUnverified,
+			State:     k8s.NodeStateUnverified,
 			CreatedAt: time.Now(),
 		}
 		r.StateCache.Set(nodeEntity.Name, state)
@@ -106,21 +112,22 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 	// Handle based on current state
 	switch state.State {
-	case StateUnverified:
+	case k8s.NodeStateUnverified:
 		return r.handleUnverified(ctx, nodeEntity, state)
-	case StatePending, StateInProgress:
+	case k8s.NodeStatePending, k8s.NodeStateInProgress:
 		return r.handleInProgress(ctx, nodeEntity, state)
-	case StateFailed:
+	case k8s.NodeStateFailed:
 		return r.handleFailed(ctx, nodeEntity, state)
-	case StateVerified:
+	case k8s.NodeStateVerified:
 		return r.handleVerified(ctx, nodeEntity, state)
 	}
 
-	return ctrl.Result{RequeueAfter: r.Config.Reconciliation.GetInterval()}, nil
+	// No action needed, wait for events
+	return ctrl.Result{}, nil
 }
 
 // handleUnverified creates a worker job for an unverified node
-func (r *NodeReconciler) handleUnverified(ctx context.Context, node *corev1.Node, state *NodeState) (ctrl.Result, error) {
+func (r *NodeReconciler) handleUnverified(ctx context.Context, node *corev1.Node, state *k8s.NodeState) (ctrl.Result, error) {
 	klog.InfoS("Handling unverified node", "node", node.Name)
 
 	// Create worker job
@@ -137,7 +144,7 @@ func (r *NodeReconciler) handleUnverified(ctx context.Context, node *corev1.Node
 	jobUID := string(job.UID)
 
 	// Update state
-	state.State = StatePending
+	state.State = k8s.NodeStatePending
 	state.WorkerJobName = job.Name
 	state.JobUID = jobUID
 	state.LastAttempt = time.Now()
@@ -157,12 +164,12 @@ func (r *NodeReconciler) handleUnverified(ctx context.Context, node *corev1.Node
 		"attempt", state.AttemptCount,
 	)
 
-	// Requeue to check status
-	return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	// Wait for job events (no requeue needed)
+	return ctrl.Result{}, nil
 }
 
 // handleInProgress monitors the worker job and processes results
-func (r *NodeReconciler) handleInProgress(ctx context.Context, node *corev1.Node, state *NodeState) (ctrl.Result, error) {
+func (r *NodeReconciler) handleInProgress(ctx context.Context, node *corev1.Node, state *k8s.NodeState) (ctrl.Result, error) {
 	klog.InfoS("Handling in-progress node", "node", node.Name, "job", state.WorkerJobName)
 
 	// Get worker job status
@@ -170,24 +177,26 @@ func (r *NodeReconciler) handleInProgress(ctx context.Context, node *corev1.Node
 	if err != nil {
 		klog.ErrorS(err, "Failed to get worker job status", "node", node.Name, "job", state.WorkerJobName)
 		// Job might have been deleted externally, reset to unverified
-		state.State = StateUnverified
+		state.State = k8s.NodeStateUnverified
 		state.WorkerJobName = ""
 		state.JobUID = ""
 		r.StateCache.Set(node.Name, state)
+		// Requeue to create new job
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
 	// Update state if job is now running
-	if state.State == StatePending && status.Active > 0 {
+	if state.State == k8s.NodeStatePending && status.Active > 0 {
 		klog.InfoS("Worker job is running", "node", node.Name, "job", state.WorkerJobName)
-		state.State = StateInProgress
+		state.State = k8s.NodeStateInProgress
 		r.StateCache.Set(node.Name, state)
 		metrics.RecordReconciliation("worker_running")
 	}
 
 	// Check if job has completed (either successfully or failed)
 	if !status.Completed {
-		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+		// Job still running, wait for job completion event
+		return ctrl.Result{}, nil
 	}
 
 	// Calculate worker job duration
@@ -236,7 +245,7 @@ func (r *NodeReconciler) handleInProgress(ctx context.Context, node *corev1.Node
 			return ctrl.Result{RequeueAfter: 10 * time.Second}, err
 		}
 
-		state.State = StateVerified
+		state.State = k8s.NodeStateVerified
 		now := time.Now()
 		state.VerifiedAt = &now
 		r.StateCache.Set(node.Name, state)
@@ -246,7 +255,8 @@ func (r *NodeReconciler) handleInProgress(ctx context.Context, node *corev1.Node
 		metrics.RecordWorkerPodDuration(node.Name, "success", duration)
 		metrics.RecordReconciliation("worker_succeeded")
 
-		return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
+		// Node is now verified, no further action needed
+		return ctrl.Result{}, nil
 	} else {
 		// Failed
 		errMsg := status.Message
@@ -264,16 +274,17 @@ func (r *NodeReconciler) handleInProgress(ctx context.Context, node *corev1.Node
 
 		klog.InfoS("Verification failed", "node", node.Name, "error", errMsg)
 
-		state.State = StateFailed
+		state.State = k8s.NodeStateFailed
 		state.LastError = errMsg
 		r.StateCache.Set(node.Name, state)
 
-		return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
+		// Trigger immediate reconcile to handle retry logic
+		return ctrl.Result{Requeue: true}, nil
 	}
 }
 
 // handleFailed handles nodes that failed verification
-func (r *NodeReconciler) handleFailed(ctx context.Context, node *corev1.Node, state *NodeState) (ctrl.Result, error) {
+func (r *NodeReconciler) handleFailed(ctx context.Context, node *corev1.Node, state *k8s.NodeState) (ctrl.Result, error) {
 	klog.InfoS("Handling failed node", "node", node.Name, "attempts", state.AttemptCount)
 
 	// Check if we should retry
@@ -296,7 +307,7 @@ func (r *NodeReconciler) handleFailed(ctx context.Context, node *corev1.Node, st
 
 		// Retry
 		klog.InfoS("Retrying verification", "node", node.Name, "attempt", state.AttemptCount+1)
-		state.State = StateUnverified
+		state.State = k8s.NodeStateUnverified
 		state.WorkerJobName = ""
 		state.JobUID = ""
 		r.StateCache.Set(node.Name, state)
@@ -320,7 +331,7 @@ func (r *NodeReconciler) handleFailed(ctx context.Context, node *corev1.Node, st
 			return ctrl.Result{RequeueAfter: 10 * time.Second}, err
 		}
 
-		state.State = StateDeleting
+		state.State = k8s.NodeStateDeleting
 		r.StateCache.Set(node.Name, state)
 
 		klog.InfoS("Node deleted successfully", "node", node.Name)
@@ -334,7 +345,7 @@ func (r *NodeReconciler) handleFailed(ctx context.Context, node *corev1.Node, st
 }
 
 // handleVerified processes verified nodes (should not normally be called due to predicate filtering)
-func (r *NodeReconciler) handleVerified(ctx context.Context, node *corev1.Node, state *NodeState) (ctrl.Result, error) {
+func (r *NodeReconciler) handleVerified(_ context.Context, node *corev1.Node, _ *k8s.NodeState) (ctrl.Result, error) {
 	klog.InfoS("Node is verified", "node", node.Name)
 
 	metrics.RecordReconciliation("already_verified")
@@ -357,27 +368,180 @@ func (r *NodeReconciler) calculateBackoff(attempt int) time.Duration {
 	return 5 * time.Second
 }
 
-// SetupWithManager sets up the controller with the Manager
+// SetupWithManager sets up the controller with the NodeManager
 func (r *NodeReconciler) SetupWithManager(mgr ctrl.Manager, log klog.Logger) error {
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&corev1.Node{}).
-		WithEventFilter(predicate.NewPredicateFuncs(func(object client.Object) bool {
-			nodeEntity, ok := object.(*corev1.Node)
+	// Create predicates for node events
+	nodePredicate := predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			n, ok := e.Object.(*corev1.Node)
 			if !ok {
 				return false
 			}
 
-			// Only watch nodes that:
-			// 1. Don't have the verified label, AND
-			// 2. Have any of the unverified taints
-			hasVerified := hasVerifiedLabel(nodeEntity, r.Config.NodeManagement.VerifiedLabel.Key)
-			hasTaint := hasAnyUnverifiedTaint(nodeEntity, r.Config.NodeManagement.Taints)
+			// Watch new nodes that have unverified taints and no verified label
+			hasVerified := hasVerifiedLabel(n, r.Config.NodeManagement.VerifiedLabel.Key)
+			hasTaint := hasAnyUnverifiedTaint(n, r.Config.NodeManagement.Taints)
 
-			log.Info("Node event received", "nodeEntity", nodeEntity.Name, "hasVerified", hasVerified, "hasTaint", hasTaint)
+			log.V(1).Info("Node created",
+				"node", n.Name,
+				"hasVerified", hasVerified,
+				"hasTaint", hasTaint,
+				"reconcile", !hasVerified && hasTaint,
+			)
 
 			return !hasVerified && hasTaint
-		})).
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldNode, ok := e.ObjectOld.(*corev1.Node)
+			if !ok {
+				return false
+			}
+			newNode, ok := e.ObjectNew.(*corev1.Node)
+			if !ok {
+				return false
+			}
+
+			// Check if label or taint status changed
+			oldHasVerified := hasVerifiedLabel(oldNode, r.Config.NodeManagement.VerifiedLabel.Key)
+			newHasVerified := hasVerifiedLabel(newNode, r.Config.NodeManagement.VerifiedLabel.Key)
+			oldHasTaint := hasAnyUnverifiedTaint(oldNode, r.Config.NodeManagement.Taints)
+			newHasTaint := hasAnyUnverifiedTaint(newNode, r.Config.NodeManagement.Taints)
+
+			// Reconcile if:
+			// 1. Verified label was removed (oldHasVerified && !newHasVerified)
+			// 2. Unverified taint was added (!oldHasTaint && newHasTaint)
+			// 3. Node now needs verification (!newHasVerified && newHasTaint)
+			labelChanged := oldHasVerified != newHasVerified
+			taintChanged := oldHasTaint != newHasTaint
+			needsVerification := !newHasVerified && newHasTaint
+
+			shouldReconcile := (labelChanged || taintChanged) && needsVerification
+
+			if shouldReconcile {
+				log.V(1).Info("Node updated - requires reconciliation",
+					"node", newNode.Name,
+					"oldHasVerified", oldHasVerified,
+					"newHasVerified", newHasVerified,
+					"oldHasTaint", oldHasTaint,
+					"newHasTaint", newHasTaint,
+				)
+			}
+
+			return shouldReconcile
+		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			// Always handle delete to clean up state
+			return true
+		},
+		GenericFunc: func(e event.GenericEvent) bool {
+			// Ignore generic events
+			return false
+		},
+	}
+
+	// Create predicates for job events - only watch for completion
+	// NOTE: For optimal performance, configure the manager's cache to watch only
+	// the worker namespace. This predicate provides additional filtering by label.
+	jobPredicate := predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			// Don't reconcile on job creation
+			return false
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			job, ok := e.ObjectNew.(*batchv1.Job)
+			if !ok {
+				return false
+			}
+
+			// Filter by namespace (defensive check even if cache is namespace-scoped)
+			if job.Namespace != r.WorkerManager.namespace {
+				return false
+			}
+
+			// Filter by label (only process our worker jobs)
+			if _, exists := job.Labels["node-ready.io/node"]; !exists {
+				return false
+			}
+
+			// Only reconcile when job completes (succeeded or failed)
+			completed := job.Status.Succeeded > 0 || job.Status.Failed > 0
+
+			if completed {
+				log.V(1).Info("Worker job completed",
+					"job", job.Name,
+					"namespace", job.Namespace,
+					"succeeded", job.Status.Succeeded,
+					"failed", job.Status.Failed,
+				)
+			}
+
+			return completed
+		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			job, ok := e.Object.(*batchv1.Job)
+			if !ok {
+				return false
+			}
+
+			// Filter by namespace
+			if job.Namespace != r.WorkerManager.namespace {
+				return false
+			}
+
+			// Filter by label (only care about our worker jobs)
+			if _, exists := job.Labels["node-ready.io/node"]; !exists {
+				return false
+			}
+
+			log.V(1).Info("Worker job deleted",
+				"job", job.Name,
+				"namespace", job.Namespace,
+			)
+
+			// Reconcile if our worker job was deleted (might need to recreate)
+			return true
+		},
+		GenericFunc: func(e event.GenericEvent) bool {
+			return false
+		},
+	}
+
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&corev1.Node{}).
+		WithEventFilter(nodePredicate).
+		Watches(
+			&batchv1.Job{},
+			handler.EnqueueRequestsFromMapFunc(r.jobToNodeMapper),
+			builder.WithPredicates(jobPredicate),
+		).
 		Complete(r)
+}
+
+// jobToNodeMapper maps Job events to Node reconciliation requests
+func (r *NodeReconciler) jobToNodeMapper(_ context.Context, obj client.Object) []reconcile.Request {
+	job, ok := obj.(*batchv1.Job)
+	if !ok {
+		return nil
+	}
+
+	// Extract node name from job labels
+	nodeName, exists := job.Labels["node-ready.io/node"]
+	if !exists {
+		return nil
+	}
+
+	klog.V(2).InfoS("Mapping job to node reconciliation",
+		"job", job.Name,
+		"node", nodeName,
+	)
+
+	return []reconcile.Request{
+		{
+			NamespacedName: types.NamespacedName{
+				Name: nodeName,
+			},
+		},
+	}
 }
 
 // hasVerifiedLabel checks if a node has the verified label
@@ -400,16 +564,6 @@ func hasAnyUnverifiedTaint(node *corev1.Node, taints []config.TaintConfig) bool 
 			if nodeTaint.Key == configTaint.Key {
 				return true
 			}
-		}
-	}
-	return false
-}
-
-// hasUnverifiedTaint checks if a node has the unverified taint (legacy function kept for compatibility)
-func hasUnverifiedTaint(node *corev1.Node, taintKey string) bool {
-	for _, taint := range node.Spec.Taints {
-		if taint.Key == taintKey {
-			return true
 		}
 	}
 	return false

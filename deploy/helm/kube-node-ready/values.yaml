@@ -25,6 +25,8 @@ controller:
   # High availability configuration
   leaderElection:
     enabled: true  # Enable leader election (required for replicas > 1)
+    id: "kube-node-ready-leader"  # Leader election lease name
+    # namespace: ""  # Optional: namespace for leader election lease (defaults to release namespace)
     leaseDuration: 15s  # Duration that non-leader candidates will wait to force acquire leadership
     renewDeadline: 10s  # Duration the leader will retry refreshing leadership before giving up
     retryPeriod: 2s     # Duration the LeaderElector clients should wait between tries of actions

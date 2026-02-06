@@ -3,7 +3,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"os"
 	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
@@ -18,11 +17,6 @@ import (
 	"github.com/imunhatep/kube-node-ready/internal/config"
 )
 
-const (
-	// Default path to namespace file in Kubernetes service account
-	namespaceFile = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
-)
-
 // WorkerManager manages the lifecycle of worker jobs
 type WorkerManager struct {
 	client    client.Client
@@ -31,44 +25,20 @@ type WorkerManager struct {
 }
 
 // NewWorkerManager creates a new worker manager
-// The namespace is auto-detected from the controller's environment
+// Uses namespace from config (which should already be detected/set)
 func NewWorkerManager(client client.Client, cfg *config.ControllerConfig) *WorkerManager {
-	namespace := detectNamespace(cfg)
-	klog.InfoS("Worker manager initialized", "namespace", namespace)
+	klog.InfoS("Worker manager initialized", "namespace", cfg.Worker.Namespace)
 
 	return &WorkerManager{
 		client:    client,
 		config:    cfg,
-		namespace: namespace,
+		namespace: cfg.Worker.Namespace,
 	}
 }
 
-// detectNamespace determines the namespace where worker jobs should be created
-func detectNamespace(cfg *config.ControllerConfig) string {
-	// 1. Try config if explicitly set (backwards compatibility)
-	if cfg.Worker.Namespace != "" {
-		klog.V(2).InfoS("Using namespace from config", "namespace", cfg.Worker.Namespace)
-		return cfg.Worker.Namespace
-	}
-
-	// 2. Try POD_NAMESPACE environment variable (injected by Kubernetes downward API)
-	if ns := os.Getenv("POD_NAMESPACE"); ns != "" {
-		klog.V(2).InfoS("Using namespace from POD_NAMESPACE env var", "namespace", ns)
-		return ns
-	}
-
-	// 3. Try reading from service account namespace file (in-cluster)
-	if data, err := os.ReadFile(namespaceFile); err == nil {
-		ns := string(data)
-		if ns != "" {
-			klog.V(2).InfoS("Using namespace from service account file", "namespace", ns)
-			return ns
-		}
-	}
-
-	// 4. Default to default namespace
-	klog.V(2).InfoS("Using default namespace", "namespace", "default")
-	return "default"
+// GetNamespace returns the namespace where worker jobs are created
+func (w *WorkerManager) GetNamespace() string {
+	return w.namespace
 }
 
 // buildWorkerEnvVars constructs environment variables for worker jobs

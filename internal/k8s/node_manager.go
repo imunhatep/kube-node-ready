@@ -1,4 +1,4 @@
-package node
+package k8s
 
 import (
 	"context"
@@ -16,22 +16,22 @@ import (
 	"k8s.io/klog/v2"
 )
 
-// Manager handles node operations
-type Manager struct {
+// NodeManager handles node operations
+type NodeManager struct {
 	clientset     *kubernetes.Clientset
 	dynamicClient dynamic.Interface
 }
 
-// NewManager creates a new node manager
-func NewManager(clientset *kubernetes.Clientset, dynamicClient dynamic.Interface) *Manager {
-	return &Manager{
+// NewNodeManager creates a new node manager
+func NewNodeManager(clientset *kubernetes.Clientset, dynamicClient dynamic.Interface) *NodeManager {
+	return &NodeManager{
 		clientset:     clientset,
 		dynamicClient: dynamicClient,
 	}
 }
 
 // UpdateNodeMetadata removes specified taints and adds specified labels to a node
-func (m *Manager) UpdateNodeMetadata(ctx context.Context, node *corev1.Node, taintsToRemove []corev1.Taint, labelsToAdd map[string]string) error {
+func (m *NodeManager) UpdateNodeMetadata(ctx context.Context, node *corev1.Node, taintsToRemove []corev1.Taint, labelsToAdd map[string]string) error {
 	if m.clientset == nil {
 		return fmt.Errorf("kubernetes client not available")
 	}
@@ -113,7 +113,7 @@ func (m *Manager) UpdateNodeMetadata(ctx context.Context, node *corev1.Node, tai
 }
 
 // findTaintIndex finds the index of a taint with the specified key
-func (m *Manager) findTaintIndex(taints []corev1.Taint, taintKey string) int {
+func (m *NodeManager) findTaintIndex(taints []corev1.Taint, taintKey string) int {
 	for i, taint := range taints {
 		if taint.Key == taintKey {
 			return i
@@ -156,7 +156,7 @@ func getNodeClaimGVR() schema.GroupVersionResource {
 }
 
 // findNodeClaimForNode finds the NodeClaim that corresponds to the given node
-func (m *Manager) findNodeClaimForNode(ctx context.Context, node *corev1.Node) (string, error) {
+func (m *NodeManager) findNodeClaimForNode(ctx context.Context, node *corev1.Node) (string, error) {
 	if m.dynamicClient == nil {
 		return "", fmt.Errorf("dynamic client not available")
 	}
@@ -191,7 +191,7 @@ func (m *Manager) findNodeClaimForNode(ctx context.Context, node *corev1.Node) (
 }
 
 // deleteNodeClaim deletes the specified NodeClaim
-func (m *Manager) deleteNodeClaim(ctx context.Context, node *corev1.Node, nodeClaimName string) error {
+func (m *NodeManager) deleteNodeClaim(ctx context.Context, node *corev1.Node, nodeClaimName string) error {
 	if m.dynamicClient == nil {
 		return fmt.Errorf("dynamic client not available")
 	}
@@ -262,7 +262,7 @@ func getNestedString(obj map[string]interface{}, fields ...string) (string, bool
 // DeleteNode deletes the node from the cluster
 // First attempts to delete associated Karpenter NodeClaim if it exists,
 // falls back to direct node deletion if no NodeClaim is found
-func (m *Manager) DeleteNode(ctx context.Context, node *corev1.Node) error {
+func (m *NodeManager) DeleteNode(ctx context.Context, node *corev1.Node) error {
 	nodeName := node.Name
 
 	// First, try to find and delete the associated NodeClaim

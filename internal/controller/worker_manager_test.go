@@ -64,9 +64,11 @@ func createTestWorkerManager(t *testing.T) (*WorkerManager, client.Client) {
 		},
 	}
 
+	// Set namespace in config (simulating what main.go does)
+	cfg.Worker.Namespace = "test-namespace"
+
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 	wm := NewWorkerManager(fakeClient, cfg)
-	wm.namespace = "test-namespace" // Override auto-detection for testing
 
 	return wm, fakeClient
 }

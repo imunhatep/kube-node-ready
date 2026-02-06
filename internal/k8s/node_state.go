@@ -1,4 +1,4 @@
-package controller
+package k8s
 
 import (
 	"sync"
@@ -9,12 +9,12 @@ import (
 type NodeVerificationState string
 
 const (
-	StateUnverified NodeVerificationState = "unverified"
-	StatePending    NodeVerificationState = "pending"
-	StateInProgress NodeVerificationState = "in_progress"
-	StateVerified   NodeVerificationState = "verified"
-	StateFailed     NodeVerificationState = "failed"
-	StateDeleting   NodeVerificationState = "deleting"
+	NodeStateUnverified NodeVerificationState = "unverified"
+	NodeStatePending    NodeVerificationState = "pending"
+	NodeStateInProgress NodeVerificationState = "in_progress"
+	NodeStateVerified   NodeVerificationState = "verified"
+	NodeStateFailed     NodeVerificationState = "failed"
+	NodeStateDeleting   NodeVerificationState = "deleting"
 )
 
 // NodeState represents the current state of a node's verification process
@@ -30,42 +30,42 @@ type NodeState struct {
 	VerifiedAt    *time.Time
 }
 
-// StateCache maintains in-memory state of node verifications
-type StateCache struct {
+// NodeStateCache maintains in-memory state of node verifications
+type NodeStateCache struct {
 	mu     sync.RWMutex
 	states map[string]*NodeState
 }
 
-// NewStateCache creates a new state cache
-func NewStateCache() *StateCache {
-	return &StateCache{
+// NewNodeStateCache creates a new state cache
+func NewNodeStateCache() *NodeStateCache {
+	return &NodeStateCache{
 		states: make(map[string]*NodeState),
 	}
 }
 
 // Get retrieves the state for a given node
-func (c *StateCache) Get(nodeName string) *NodeState {
+func (c *NodeStateCache) Get(nodeName string) *NodeState {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.states[nodeName]
 }
 
 // Set stores or updates the state for a given node
-func (c *StateCache) Set(nodeName string, state *NodeState) {
+func (c *NodeStateCache) Set(nodeName string, state *NodeState) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.states[nodeName] = state
 }
 
 // Delete removes the state for a given node
-func (c *StateCache) Delete(nodeName string) {
+func (c *NodeStateCache) Delete(nodeName string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	delete(c.states, nodeName)
 }
 
 // List returns all node states
-func (c *StateCache) List() []*NodeState {
+func (c *NodeStateCache) List() []*NodeState {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -77,7 +77,7 @@ func (c *StateCache) List() []*NodeState {
 }
 
 // CountByState returns the number of nodes in each state
-func (c *StateCache) CountByState() map[NodeVerificationState]int {
+func (c *NodeStateCache) CountByState() map[NodeVerificationState]int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -89,7 +89,7 @@ func (c *StateCache) CountByState() map[NodeVerificationState]int {
 }
 
 // GetAll returns a copy of all node states (for metrics)
-func (c *StateCache) GetAll() map[string]*NodeState {
+func (c *NodeStateCache) GetAll() map[string]*NodeState {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 

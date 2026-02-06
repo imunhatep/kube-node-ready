@@ -67,12 +67,6 @@ spec:
         command: ["/kube-node-ready-controller"]
         args:
           - --config=/etc/kube-node-ready/config.yaml
-          {{- if .Values.controller.leaderElection.enabled }}
-          - --leader-elect=true
-          - --leader-election-namespace={{ .Release.Namespace }}
-          {{- else }}
-          - --leader-elect=false
-          {{- end }}
 
         ports:
         - name: metrics

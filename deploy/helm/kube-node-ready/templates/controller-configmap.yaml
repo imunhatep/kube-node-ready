@@ -69,6 +69,16 @@ data:
         key: {{ .Values.controller.config.nodeManagement.verifiedLabel.key | quote }}
         value: {{ .Values.controller.config.nodeManagement.verifiedLabel.value | quote }}
 
+    # Leader Election Configuration
+    leaderElection:
+      enabled: {{ .Values.controller.leaderElection.enabled }}
+      id: {{ .Values.controller.leaderElection.id | default "kube-node-ready-leader" | quote }}
+      {{- if .Values.controller.leaderElection.namespace }}
+      namespace: {{ .Values.controller.leaderElection.namespace | quote }}
+      {{- else }}
+      namespace: ""  # Defaults to controller namespace
+      {{- end }}
+
     # Metrics Configuration
     metrics:
       enabled: {{ .Values.controller.config.metrics.enabled }}
