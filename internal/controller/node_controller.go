@@ -454,7 +454,7 @@ func (r *NodeReconciler) SetupWithManager(mgr ctrl.Manager, log klog.Logger) err
 			}
 
 			// Filter by namespace (defensive check even if cache is namespace-scoped)
-			if job.Namespace != r.WorkerManager.namespace {
+			if job.Namespace != r.Config.GetNamespace() {
 				return false
 			}
 
@@ -484,7 +484,7 @@ func (r *NodeReconciler) SetupWithManager(mgr ctrl.Manager, log klog.Logger) err
 			}
 
 			// Filter by namespace
-			if job.Namespace != r.WorkerManager.namespace {
+			if job.Namespace != r.Config.GetNamespace() {
 				return false
 			}
 
