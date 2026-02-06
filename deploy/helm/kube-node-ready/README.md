@@ -2,6 +2,29 @@
 
 Helm chart for deploying kube-node-ready, a Kubernetes node network verification system using the Controller + Worker architecture.
 
+## Architecture
+
+kube-node-ready uses a **Controller + Worker Job** pattern:
+
+- **Controller**: Manages node lifecycle, creates worker jobs, monitors verification status, and updates node metadata (removes taints, adds labels)
+- **Worker Jobs**: Short-lived pods that run verification checks (DNS, network, Kubernetes API) on each node and exit with success/failure code
+- **Separation of Concerns**: Workers only verify; Controller manages node state based on verification results
+
+### Security & RBAC
+
+The system follows the **principle of least privilege**:
+
+- **Worker Pods**: Minimal permissions (only `get` access to `services` and `endpoints` for verification checks)
+- **Controller**: Full node management permissions (create jobs, update nodes, optional Karpenter integration)
+- No privileged containers or host access required
+
+### Karpenter Integration
+
+The controller automatically detects and uses Karpenter NodeClaims when available:
+- Failed nodes: Deletes NodeClaim instead of node directly (graceful termination by Karpenter)
+- Standard nodes: Falls back to direct node deletion when NodeClaim not found
+- No additional configuration needed - detection is automatic
+
 ## Installation
 
 ### Install kube-node-ready
@@ -61,21 +84,21 @@ controller:
 
 ### Common Configuration
 
-| Parameter | Description | Default |
-|-----------|-------------|---------|
+| Parameter | Description | Default           |
+|-----------|-------------|-------------------|
 | `image.repository` | Container image repository | `kube-node-ready` |
-| `image.tag` | Container image tag | `0.1.0` |
-| `image.pullPolicy` | Image pull policy | `IfNotPresent` |
-| `imagePullSecrets` | Image pull secrets | `[]` |
+| `image.tag` | Container image tag | `latest`          |
+| `image.pullPolicy` | Image pull policy | `IfNotPresent`    |
+| `imagePullSecrets` | Image pull secrets | `[]`              |
 
 ### Controller Configuration (Optional)
 
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `controller.replicas` | Number of controller replicas | `1` |
+| Parameter | Description | Default                             |
+|-----------|-------------|-------------------------------------|
+| `controller.replicas` | Number of controller replicas | `1`                                 |
 | `controller.image.repository` | Controller image repository | `ghcr.io/imunhatep/kube-node-ready` |
-| `controller.image.tag` | Controller image tag | `0.2.6` |
-| `controller.image.pullPolicy` | Image pull policy | `IfNotPresent` |
+| `controller.image.tag` | Controller image tag | `latest`                            |
+| `controller.image.pullPolicy` | Image pull policy | `IfNotPresent`                      |
 
 #### Controller Configuration File
 
@@ -101,6 +124,19 @@ The controller reads configuration from a ConfigMap mounted as `/etc/kube-node-r
 | `controller.config.logLevel` | Log level (debug/info/warn/error) | `"info"` |
 | `controller.config.logFormat` | Log format (json/console) | `"json"` |
 | `controller.config.kubeconfigPath` | Kubeconfig path (empty for in-cluster) | `""` |
+
+#### Worker Configuration
+
+Worker pods can be configured with tolerations and custom init containers:
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `controller.config.worker.tolerations` | Additional tolerations for worker pods (beyond managed taints) | `[]` |
+| `controller.config.worker.initContainers` | Custom init containers for extended checks | `[]` |
+
+**Worker Tolerations**: By default, workers tolerate the verification taints and standard Kubernetes taints (`not-ready`, `unreachable`). Additional tolerations can be configured for custom node taints that should not be removed on verification success.
+
+**Custom Init Containers**: Extend verification checks by adding custom init containers that run before the main worker. If any init container fails, the entire verification fails. See examples below.
 
 #### Controller Resources and Scheduling
 
@@ -212,7 +248,7 @@ controller:
     worker:
       image:
         repository: "ghcr.io/imunhatep/kube-node-ready"
-        tag: "0.3.0"
+        tag: "latest"
       timeoutSeconds: 300
     reconciliation:
       maxRetries: 5
@@ -263,6 +299,64 @@ controller:
       level: "debug"
       format: "console"
 ```
+
+### Worker Tolerations
+
+Configure workers to tolerate additional node taints (e.g., for nodes with custom taints that should not be removed):
+
+```yaml
+controller:
+  config:
+    worker:
+      tolerations:
+        - key: "custom-taint"
+          operator: "Exists"
+          effect: "NoSchedule"
+        - key: "gpu"
+          operator: "Equal"
+          value: "true"
+          effect: "NoSchedule"
+```
+
+**Note**: To tolerate all taints (like DaemonSets), use:
+```yaml
+controller:
+  config:
+    worker:
+      tolerations:
+        - operator: "Exists"
+```
+
+### Custom Init Containers
+
+Extend verification checks with custom init containers:
+
+```yaml
+controller:
+  config:
+    worker:
+      initContainers:
+        - name: "check-gpu"
+          image: "nvidia/cuda:11.8.0-base-ubuntu22.04"
+          command: ["nvidia-smi"]
+        - name: "check-storage"
+          image: "busybox:1.36"
+          command: ["sh", "-c"]
+          args:
+            - |
+              df -h /host-root
+              [ $(df -P /host-root | tail -1 | awk '{print $5}' | sed 's/%//') -lt 90 ]
+          volumeMounts:
+            - name: host-root
+              mountPath: /host-root
+              readOnly: true
+```
+
+Common use cases:
+- **Hardware checks**: Verify GPU availability, disk space, network interfaces
+- **Custom network tests**: Check connectivity to internal services or databases
+- **Configuration validation**: Verify required files or settings exist on the node
+- **Security scans**: Run custom security checks before node activation
 
 ### Resource Limits
 ```yaml
@@ -320,10 +414,22 @@ kubectl logs -n kube-system -l app.kubernetes.io/component=worker --tail=100
 
 ### Verify RBAC
 ```bash
+# Controller permissions: nodes, jobs, pods, leases, nodeclaims (Karpenter)
 kubectl get clusterrole kube-node-ready-controller -o yaml
+
+# Worker permissions: services, endpoints (read-only)
 kubectl get clusterrole kube-node-ready-worker -o yaml
+
+# Verify bindings
 kubectl get clusterrolebinding kube-node-ready-controller -o yaml
+kubectl get clusterrolebinding kube-node-ready-worker -o yaml
 ```
+
+**RBAC Security**:
+- Workers have minimal permissions (only `get` on services/endpoints)
+- Workers cannot modify nodes (principle of least privilege)
+- Controller has full node management capabilities
+- Karpenter integration requires nodeclaims permissions on controller
 
 ### Test on Specific Node
 ```bash
