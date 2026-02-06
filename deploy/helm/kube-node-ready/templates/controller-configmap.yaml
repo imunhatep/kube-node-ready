@@ -18,13 +18,10 @@ data:
       timeoutSeconds: {{ .Values.controller.config.worker.timeoutSeconds }}
       serviceAccountName: {{ .Values.controller.config.worker.serviceAccountName | default (include "kube-node-ready.workerServiceAccountName" .) | quote }}
       priorityClassName: {{ .Values.controller.config.worker.priorityClassName | quote }}
+      {{ with .Values.controller.config.worker.resources }}
       resources:
-        requests:
-          cpu: {{ .Values.controller.config.worker.resources.requests.cpu | quote }}
-          memory: {{ .Values.controller.config.worker.resources.requests.memory | quote }}
-        limits:
-          cpu: {{ .Values.controller.config.worker.resources.limits.cpu | quote }}
-          memory: {{ .Values.controller.config.worker.resources.limits.memory | quote }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       configMapName: {{ include "kube-node-ready.fullname" . }}-worker
       {{- if .Values.controller.config.worker.tolerations }}
       tolerations:
@@ -84,47 +81,13 @@ data:
               {{- end }}
           {{- end }}
           {{- end }}
-          {{- if .resources }}
+          {{- with .resources }}
           resources:
-            {{- if .resources.requests }}
-            requests:
-              {{- if .resources.requests.cpu }}
-              cpu: {{ .resources.requests.cpu | quote }}
-              {{- end }}
-              {{- if .resources.requests.memory }}
-              memory: {{ .resources.requests.memory | quote }}
-              {{- end }}
-            {{- end }}
-            {{- if .resources.limits }}
-            limits:
-              {{- if .resources.limits.cpu }}
-              cpu: {{ .resources.limits.cpu | quote }}
-              {{- end }}
-              {{- if .resources.limits.memory }}
-              memory: {{ .resources.limits.memory | quote }}
-              {{- end }}
-            {{- end }}
+            {{- toYaml . | nindent 12 }}
           {{- end }}
-          {{- if .securityContext }}
+          {{- with .securityContext }}
           securityContext:
-            {{- if .securityContext.privileged }}
-            privileged: {{ .securityContext.privileged }}
-            {{- end }}
-            {{- if .securityContext.readOnlyRootFilesystem }}
-            readOnlyRootFilesystem: {{ .securityContext.readOnlyRootFilesystem }}
-            {{- end }}
-            {{- if .securityContext.runAsNonRoot }}
-            runAsNonRoot: {{ .securityContext.runAsNonRoot }}
-            {{- end }}
-            {{- if .securityContext.runAsUser }}
-            runAsUser: {{ .securityContext.runAsUser }}
-            {{- end }}
-            {{- if .securityContext.runAsGroup }}
-            runAsGroup: {{ .securityContext.runAsGroup }}
-            {{- end }}
-            {{- if .securityContext.allowPrivilegeEscalation }}
-            allowPrivilegeEscalation: {{ .securityContext.allowPrivilegeEscalation }}
-            {{- end }}
+            {{- toYaml . | nindent 12 }}
           {{- end }}
       {{- end }}
       {{- end }}

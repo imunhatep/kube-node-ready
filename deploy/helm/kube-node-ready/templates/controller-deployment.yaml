@@ -27,9 +27,13 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+
       serviceAccountName: {{ include "kube-node-ready.controllerServiceAccountName" . }}
+
+      {{- with .Values.podSecurityContext }}
       securityContext:
-        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
 
       {{- with .Values.controller.nodeSelector }}
       nodeSelector:
@@ -38,7 +42,6 @@ spec:
 
       {{- if or .Values.controller.affinity (gt (int .Values.controller.replicas) 1) }}
       affinity:
-        {{- if gt (int .Values.controller.replicas) 1 }}
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
           - weight: 100
@@ -48,7 +51,6 @@ spec:
                   {{- include "kube-node-ready.selectorLabels" . | nindent 18 }}
                   app.kubernetes.io/component: controller
               topologyKey: kubernetes.io/hostname
-        {{- end }}
         {{- with .Values.controller.affinity }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -99,11 +101,15 @@ spec:
           timeoutSeconds: 5
           failureThreshold: 3
 
+        {{- with .Values.controller.resources }}
         resources:
-          {{- toYaml .Values.controller.resources | nindent 12 }}
+          {{- toYaml . | nindent 12 }}
+        {{- end }}
 
+        {{- with .Values.controller.securityContext }}
         securityContext:
-          {{- toYaml .Values.securityContext | nindent 10 }}
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
 
         volumeMounts:
           - name: config
