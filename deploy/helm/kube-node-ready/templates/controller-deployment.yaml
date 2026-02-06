@@ -102,7 +102,7 @@ spec:
 
         {{- with .Values.controller.resources }}
         resources:
-          {{- toYaml . | nindent 12 }}
+          {{- toYaml . | nindent 10 }}
         {{- end }}
 
         {{- with .Values.controller.securityContext }}
