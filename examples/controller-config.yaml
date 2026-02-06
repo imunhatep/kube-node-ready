@@ -5,7 +5,7 @@
 worker:
   image:
     repository: ghcr.io/imunhatep/kube-node-ready
-    tag: "0.3.0"
+    tag: "0.4.1"
     pullPolicy: IfNotPresent
   # namespace: kube-system  # Auto-detected from controller environment
   serviceAccountName: "kube-node-ready-worker"

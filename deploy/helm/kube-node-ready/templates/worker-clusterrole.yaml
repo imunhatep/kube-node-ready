@@ -6,18 +6,8 @@ metadata:
     {{- include "kube-node-ready.labels" . | nindent 4 }}
     app.kubernetes.io/component: worker
 rules:
-# Permissions for service discovery checks
+# Permissions for service discovery checks (checks kubernetes service and endpoints in default namespace)
 - apiGroups: [""]
   resources: ["services", "endpoints"]
-  verbs: ["get", "list"]
-
-# Permissions to update node labels and remove taints
-- apiGroups: [""]
-  resources: ["nodes"]
-  verbs: ["get", "update", "patch"]
-
-# Permissions to read node status
-- apiGroups: [""]
-  resources: ["nodes/status"]
   verbs: ["get"]
 

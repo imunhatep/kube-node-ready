@@ -6,44 +6,32 @@ metadata:
     {{- include "kube-node-ready.labels" . | nindent 4 }}
     app.kubernetes.io/component: controller
 rules:
-# Permissions for node management
+# Permissions for node management (reconcile, update metadata, delete)
 - apiGroups: [""]
   resources: ["nodes"]
   verbs: ["get", "list", "watch", "update", "patch", "delete"]
-- apiGroups: [""]
-  resources: ["nodes/status"]
-  verbs: ["get", "update", "patch"]
 
 # Permissions for job management (worker jobs)
 - apiGroups: ["batch"]
   resources: ["jobs"]
-  verbs: ["get", "list", "watch", "create", "delete", "deletecollection"]
-- apiGroups: ["batch"]
-  resources: ["jobs/status"]
-  verbs: ["get"]
+  verbs: ["get", "create", "delete"]
 
-# Permissions for pod management (for job status monitoring)
+# Permissions for pod management (for job logs and status monitoring)
 - apiGroups: [""]
   resources: ["pods"]
-  verbs: ["get", "list", "watch"]
-- apiGroups: [""]
-  resources: ["pods/status"]
-  verbs: ["get"]
+  verbs: ["list"]
 - apiGroups: [""]
   resources: ["pods/log"]
   verbs: ["get"]
-
-# Permissions for events
-- apiGroups: [""]
-  resources: ["events"]
-  verbs: ["create", "patch"]
-
-# Permissions for configmaps (if needed for coordination)
-- apiGroups: [""]
-  resources: ["configmaps"]
-  verbs: ["get", "list", "watch"]
 
 # Permissions for lease (for leader election)
 - apiGroups: ["coordination.k8s.io"]
   resources: ["leases"]
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+# Permissions for Karpenter NodeClaims (if Karpenter is installed)
+# Used to delete NodeClaim instead of node directly for graceful termination
+- apiGroups: ["karpenter.sh"]
+  resources: ["nodeclaims"]
+  verbs: ["get", "list", "delete"]
+

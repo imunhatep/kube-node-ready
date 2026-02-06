@@ -4,7 +4,6 @@
 
 # Check Configuration
 checkTimeoutSeconds: 5
-initialCheckTimeoutSeconds: 10
 maxRetries: 1
 retryBackoff: linear
 
@@ -14,11 +13,6 @@ dnsTestDomains:
   - google.com
   # Add more domains to test DNS resolution
   # - internal-service.namespace.svc.cluster.local
-
-# Optional: Cluster DNS IP address
-# If not specified, worker will use system default DNS
-clusterDnsIp: ""
-
 
 # Logging Configuration
 logging:

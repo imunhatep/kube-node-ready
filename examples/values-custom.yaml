@@ -8,7 +8,7 @@ controller:
   replicas: 1
   image:
     repository: ghcr.io/imunhatep/kube-node-ready
-    tag: "0.3.0"
+    tag: "0.4.1"
     pullPolicy: IfNotPresent
 
   # High availability configuration
@@ -21,7 +21,7 @@ controller:
     worker:
       image:
         repository: ghcr.io/imunhatep/kube-node-ready
-        tag: "0.3.0"
+        tag: "0.4.1"
         pullPolicy: IfNotPresent
       timeoutSeconds: 300
       priorityClassName: system-node-critical
