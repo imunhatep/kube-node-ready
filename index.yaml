@@ -2,6 +2,27 @@ apiVersion: v1
 entries:
   kube-node-ready:
   - apiVersion: v2
+    appVersion: 0.5.0
+    created: "2026-02-06T17:15:41.644775311Z"
+    description: A Helm chart for Kubernetes node verification
+    digest: 486cb43a106e2e638b4bc1c1b3c436f4dda3efdacab1d5e60fa1c205e05344b6
+    home: https://github.com/imunhatep/kube-node-ready
+    keywords:
+    - kubernetes
+    - node
+    - verification
+    - networking
+    - karpenter
+    maintainers:
+    - name: Artyom Sukharev
+    name: kube-node-ready
+    sources:
+    - https://github.com/imunhatep/kube-node-ready
+    type: application
+    urls:
+    - https://github.com/imunhatep/kube-node-ready/releases/download/kube-node-ready-0.5.0/kube-node-ready-0.5.0.tgz
+    version: 0.5.0
+  - apiVersion: v2
     appVersion: 0.4.5
     created: "2026-02-06T15:26:42.070680161Z"
     description: A Helm chart for Kubernetes node verification
@@ -169,4 +190,4 @@ entries:
     urls:
     - https://github.com/imunhatep/kube-node-ready/releases/download/kube-node-ready-0.2.0/kube-node-ready-0.2.0.tgz
     version: 0.2.0
-generated: "2026-02-06T15:26:42.070712374Z"
+generated: "2026-02-06T17:15:41.644818792Z"
