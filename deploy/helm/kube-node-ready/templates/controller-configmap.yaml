@@ -12,7 +12,7 @@ data:
     worker:
       image:
         repository: {{ .Values.controller.config.worker.image.repository }}
-        tag: {{ .Values.controller.config.worker.image.tag | quote }}
+        tag: {{ .Values.controller.config.worker.image.tag | default .Chart.AppVersion | quote }}
         pullPolicy: {{ .Values.controller.config.worker.image.pullPolicy }}
       namespace: {{ .Values.controller.config.worker.namespace }}
       timeoutSeconds: {{ .Values.controller.config.worker.timeoutSeconds }}

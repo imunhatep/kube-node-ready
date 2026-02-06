@@ -123,7 +123,7 @@ controller:
     worker:
       image:
         repository: ghcr.io/imunhatep/kube-node-ready
-        tag: "0.3.0"
+        #tag: "0.4.3"
         pullPolicy: IfNotPresent
       # Note: namespace is auto-detected from controller's environment
       # Uncomment to override (defaults to controller's namespace)
@@ -137,7 +137,7 @@ controller:
           cpu: "50m"
           memory: "64Mi"
         limits:
-          memory: "128Mi"  # Optional: recommended to prevent OOM issues
+          memory: "64Mi"  # Optional: recommended to prevent OOM issues
 
       # Additional tolerations for worker pods (beyond automatic ones)
       # Useful when nodes have additional taints that should not be removed during validation
