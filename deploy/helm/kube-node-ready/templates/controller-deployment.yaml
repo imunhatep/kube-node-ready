@@ -23,12 +23,11 @@ spec:
         {{- include "kube-node-ready.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: controller
     spec:
+      serviceAccountName: {{ include "kube-node-ready.controllerServiceAccountName" . }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-
-      serviceAccountName: {{ include "kube-node-ready.controllerServiceAccountName" . }}
 
       {{- with .Values.podSecurityContext }}
       securityContext:

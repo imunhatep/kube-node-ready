@@ -143,43 +143,43 @@ controller:
       # Useful when nodes have additional taints that should not be removed during validation
       tolerations: []
       # Examples:
-      # tolerations:
-      #  # Tolerate all taints - similar to DaemonSet behavior
-      #   - operator: "Exists"
-      #     effect: ""  # Empty effect means tolerate all effects
-      #  # Tolerate specific taint
-      #   - key: "workload-type"
-      #     operator: "Equal"
-      #     value: "batch"
-      #     effect: "NoExecute"
-      #     tolerationSeconds: 300
+      #tolerations:
+      # # Tolerate all taints - similar to DaemonSet behavior
+      #  - operator: "Exists"
+      #    effect: ""  # Empty effect means tolerate all effects
+      # # Tolerate specific taint
+      #  - key: "workload-type"
+      #    operator: "Equal"
+      #    value: "batch"
+      #    effect: "NoExecute"
+      #    tolerationSeconds: 300
 
       # Custom init containers for additional verification checks
       # These run before the main verification container and must all succeed
       initContainers: []
       # Examples:
-      # initContainers:
-      #   - name: custom-network-check
-      #     image: busybox:latest
-      #     command: ["/bin/sh", "-c"]
-      #     args: ["ping -c 3 internal-service.company.com"]
-      #   - name: storage-check
-      #     image: busybox:latest
-      #     command: ["/bin/sh", "-c"]
-      #     args: ["test -d /host/var/lib/kubelet"]
-      #     volumeMounts:
-      #       - name: host-kubelet
-      #         mountPath: /host/var/lib/kubelet
-      #         readOnly: true
-      #     securityContext:
-      #       privileged: false
-      #       readOnlyRootFilesystem: true
-      #   - name: gpu-check
-      #     image: nvidia/cuda:11.0-base
-      #     command: ["nvidia-smi"]
-      #     resources:
-      #       limits:
-      #         nvidia.com/gpu: 1
+      #initContainers:
+      #  - name: custom-network-check
+      #    image: busybox:latest
+      #    command: ["/bin/sh", "-c"]
+      #    args: ["ping -c 3 internal-service.company.com"]
+      #  - name: storage-check
+      #    image: busybox:latest
+      #    command: ["/bin/sh", "-c"]
+      #    args: ["test -d /host/var/lib/kubelet"]
+      #    volumeMounts:
+      #      - name: host-kubelet
+      #        mountPath: /host/var/lib/kubelet
+      #        readOnly: true
+      #    securityContext:
+      #      privileged: false
+      #      readOnlyRootFilesystem: true
+      #  - name: gpu-check
+      #    image: nvidia/cuda:11.0-base
+      #    command: ["nvidia-smi"]
+      #    resources:
+      #      limits:
+      #        nvidia.com/gpu: 1
 
       # Job Configuration (optional - provides better reliability and auto-retry)
       job:

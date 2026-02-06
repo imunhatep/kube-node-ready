@@ -18,78 +18,18 @@ data:
       timeoutSeconds: {{ .Values.controller.config.worker.timeoutSeconds }}
       serviceAccountName: {{ .Values.controller.config.worker.serviceAccountName | default (include "kube-node-ready.workerServiceAccountName" .) | quote }}
       priorityClassName: {{ .Values.controller.config.worker.priorityClassName | quote }}
-      {{ with .Values.controller.config.worker.resources }}
+      {{- with .Values.controller.config.worker.resources }}
       resources:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       configMapName: {{ include "kube-node-ready.fullname" . }}-worker
-      {{- if .Values.controller.config.worker.tolerations }}
+      {{- with .Values.controller.config.worker.tolerations }}
       tolerations:
-      {{- range .Values.controller.config.worker.tolerations }}
-        - key: {{ .key | quote }}
-          {{- if .operator }}
-          operator: {{ .operator | quote }}
-          {{- end }}
-          {{- if .value }}
-          value: {{ .value | quote }}
-          {{- end }}
-          {{- if .effect }}
-          effect: {{ .effect | quote }}
-          {{- end }}
-          {{- if .tolerationSeconds }}
-          tolerationSeconds: {{ .tolerationSeconds }}
-          {{- end }}
+        {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- end }}
-      {{- if .Values.controller.config.worker.initContainers }}
+      {{- with .Values.controller.config.worker.initContainers }}
       initContainers:
-      {{- range .Values.controller.config.worker.initContainers }}
-        - name: {{ .name | quote }}
-          image: {{ .image | quote }}
-          {{- if .command }}
-          command:
-          {{- range .command }}
-            - {{ . | quote }}
-          {{- end }}
-          {{- end }}
-          {{- if .args }}
-          args:
-          {{- range .args }}
-            - {{ . | quote }}
-          {{- end }}
-          {{- end }}
-          {{- if .workingDir }}
-          workingDir: {{ .workingDir | quote }}
-          {{- end }}
-          {{- if .env }}
-          env:
-          {{- range .env }}
-            - name: {{ .name | quote }}
-              value: {{ .value | quote }}
-          {{- end }}
-          {{- end }}
-          {{- if .volumeMounts }}
-          volumeMounts:
-          {{- range .volumeMounts }}
-            - name: {{ .name | quote }}
-              mountPath: {{ .mountPath | quote }}
-              {{- if .readOnly }}
-              readOnly: {{ .readOnly }}
-              {{- end }}
-              {{- if .subPath }}
-              subPath: {{ .subPath | quote }}
-              {{- end }}
-          {{- end }}
-          {{- end }}
-          {{- with .resources }}
-          resources:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-          {{- with .securityContext }}
-          securityContext:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-      {{- end }}
+        {{- toYaml . | nindent 8 }}
       {{- end }}
       {{- if .Values.controller.config.worker.job }}
       job:
