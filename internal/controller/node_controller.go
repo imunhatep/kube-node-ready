@@ -47,19 +47,19 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 	log.Info("NodeReconciler: new reconcile invoked")
 
-	// Fetch the node
-	node := &corev1.Node{}
-	if err := r.Get(ctx, req.NamespacedName, node); err != nil {
+	// Fetch the nodeEntity
+	nodeEntity := &corev1.Node{}
+	if err := r.Get(ctx, req.NamespacedName, nodeEntity); err != nil {
 		if errors.IsNotFound(err) {
 			// Node deleted, clean up state
-			log.Info("Node deleted, cleaning up state", "node", req.Name)
+			log.Info("Node deleted, cleaning up state", "nodeEntity", req.Name)
 			r.StateCache.Delete(req.Name)
 			metrics.SetWorkerPodsActive(req.Name, 0)
 			metrics.SetNodeRetryCount(req.Name, 0)
 			metrics.RecordReconciliation("deleted")
 			return ctrl.Result{}, nil
 		}
-		log.Error(err, "Failed to get node", "node", req.Name)
+		log.Error(err, "Failed to get nodeEntity", "nodeEntity", req.Name)
 		metrics.RecordReconciliationError(req.Name, "node_fetch_error")
 		metrics.RecordReconciliation("error")
 		return ctrl.Result{}, err
@@ -68,38 +68,38 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	// Record reconciliation duration at the end
 	defer func() {
 		duration := time.Since(startTime).Seconds()
-		metrics.RecordReconciliationDuration(node.Name, duration)
+		metrics.RecordReconciliationDuration(nodeEntity.Name, duration)
 	}()
 
-	// Check if node already has the verified label
-	if hasVerifiedLabel(node, r.Config.NodeManagement.VerifiedLabel.Key) {
-		log.V(4).Info("Node already verified, skipping", "node", node.Name)
-		r.StateCache.Delete(node.Name)
+	// Check if nodeEntity already has the verified label
+	if hasVerifiedLabel(nodeEntity, r.Config.NodeManagement.VerifiedLabel.Key) {
+		log.V(4).Info("Node already verified, skipping", "nodeEntity", nodeEntity.Name)
+		r.StateCache.Delete(nodeEntity.Name)
 		metrics.RecordReconciliation("already_verified")
 		return ctrl.Result{}, nil
 	}
 
-	// Check if node has any of the unverified taints
-	if !hasAnyUnverifiedTaint(node, r.Config.NodeManagement.Taints) {
-		log.V(4).Info("Node does not have unverified taint, skipping", "node", node.Name)
+	// Check if nodeEntity has any of the unverified taints
+	if !hasAnyUnverifiedTaint(nodeEntity, r.Config.NodeManagement.Taints) {
+		log.V(4).Info("Node does not have unverified taint, skipping", "nodeEntity", nodeEntity.Name)
 		metrics.RecordReconciliation("no_taint")
 		return ctrl.Result{}, nil
 	}
 
 	// Get or create state
-	state := r.StateCache.Get(node.Name)
+	state := r.StateCache.Get(nodeEntity.Name)
 	if state == nil {
-		log.Info("New unverified node detected", "node", node.Name)
+		log.Info("New unverified nodeEntity detected", "nodeEntity", nodeEntity.Name)
 		state = &NodeState{
-			NodeName:  node.Name,
+			NodeName:  nodeEntity.Name,
 			State:     StateUnverified,
 			CreatedAt: time.Now(),
 		}
-		r.StateCache.Set(node.Name, state)
+		r.StateCache.Set(nodeEntity.Name, state)
 	}
 
-	log.Info("Reconciling node",
-		"node", node.Name,
+	log.Info("Reconciling nodeEntity",
+		"nodeEntity", nodeEntity.Name,
 		"state", state.State,
 		"attempts", state.AttemptCount,
 	)
@@ -107,13 +107,13 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	// Handle based on current state
 	switch state.State {
 	case StateUnverified:
-		return r.handleUnverified(ctx, node, state)
+		return r.handleUnverified(ctx, nodeEntity, state)
 	case StatePending, StateInProgress:
-		return r.handleInProgress(ctx, node, state)
+		return r.handleInProgress(ctx, nodeEntity, state)
 	case StateFailed:
-		return r.handleFailed(ctx, node, state)
+		return r.handleFailed(ctx, nodeEntity, state)
 	case StateVerified:
-		return r.handleVerified(ctx, node, state)
+		return r.handleVerified(ctx, nodeEntity, state)
 	}
 
 	return ctrl.Result{RequeueAfter: r.Config.Reconciliation.GetInterval()}, nil
@@ -362,7 +362,7 @@ func (r *NodeReconciler) SetupWithManager(mgr ctrl.Manager, log klog.Logger) err
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&corev1.Node{}).
 		WithEventFilter(predicate.NewPredicateFuncs(func(object client.Object) bool {
-			node, ok := object.(*corev1.Node)
+			nodeEntity, ok := object.(*corev1.Node)
 			if !ok {
 				return false
 			}
@@ -370,10 +370,10 @@ func (r *NodeReconciler) SetupWithManager(mgr ctrl.Manager, log klog.Logger) err
 			// Only watch nodes that:
 			// 1. Don't have the verified label, AND
 			// 2. Have any of the unverified taints
-			hasVerified := hasVerifiedLabel(node, r.Config.NodeManagement.VerifiedLabel.Key)
-			hasTaint := hasAnyUnverifiedTaint(node, r.Config.NodeManagement.Taints)
+			hasVerified := hasVerifiedLabel(nodeEntity, r.Config.NodeManagement.VerifiedLabel.Key)
+			hasTaint := hasAnyUnverifiedTaint(nodeEntity, r.Config.NodeManagement.Taints)
 
-			log.Info("Node event received", "node", node.Name, "hasVerified", hasVerified, "hasTaint", hasTaint)
+			log.Info("Node event received", "nodeEntity", nodeEntity.Name, "hasVerified", hasVerified, "hasTaint", hasTaint)
 
 			return !hasVerified && hasTaint
 		})).

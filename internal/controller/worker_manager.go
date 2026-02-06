@@ -381,7 +381,7 @@ func (w *WorkerManager) CreateWorkerJob(ctx context.Context, nodeName string) (*
 							Name:            "worker",
 							Image:           w.config.GetWorkerImage(),
 							ImagePullPolicy: corev1.PullPolicy(w.config.Worker.Image.PullPolicy),
-							Command:         []string{"kube-node-ready-worker"},
+							Command:         []string{"/kube-node-ready-worker"},
 							Env:             w.buildWorkerEnvVars(),
 							Resources:       resourceReqs,
 							VolumeMounts: []corev1.VolumeMount{
