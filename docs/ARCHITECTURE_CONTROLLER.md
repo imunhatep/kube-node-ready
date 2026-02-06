@@ -4,7 +4,7 @@
 
 The `kube-node-ready` system uses a **Controller + Worker** architecture that separates concerns between orchestration and execution:
 
-- **Controller**: A single deployment that watches node events, manages worker pods, handles reconciliation, and exposes centralized metrics
+- **Controller**: A single deployment that watches Node and Job resources via controller-runtime, manages worker pods, handles reconciliation, and exposes centralized metrics
 - **Worker**: Short-lived pods that perform actual node verification checks on specific nodes
 
 ## Architecture
@@ -32,9 +32,9 @@ Worker pod terminates and is cleaned up
 ### Component Responsibilities
 
 #### Controller
-- **Node Watching**: Monitor Node Add/Update/Delete events
+- **Resource Watching**: Monitor Node and Job resources using controller-runtime (watches for create, update, delete operations)
 - **State Management**: Track verification state per node (pending, in-progress, verified, failed)
-- **Worker Orchestration**: Create and monitor worker pods for unverified nodes
+- **Worker Orchestration**: Create and monitor worker pods (as Jobs) for unverified nodes
 - **Result Processing**: Handle worker completion and update nodes accordingly
 - **Retry Logic**: Implement backoff and retry for failed verifications
 - **Metrics**: Expose centralized metrics for all node operations

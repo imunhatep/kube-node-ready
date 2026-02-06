@@ -6,10 +6,14 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+	"k8s.io/klog/v2"
 )
 
 const RetryBackoffExponential = "exponential"
 const RetryBackoffLinear = "linear"
+
+// namespaceFile is the default path to namespace file in Kubernetes service account
+const namespaceFile = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
 
 // JobConfig holds job-specific configuration
 type JobConfig struct {
@@ -150,6 +154,13 @@ type LoggingConfig struct {
 	Format string `yaml:"format"`
 }
 
+// LeaderElectionConfig holds leader election configuration
+type LeaderElectionConfig struct {
+	Enabled   bool   `yaml:"enabled"`
+	ID        string `yaml:"id"`
+	Namespace string `yaml:"namespace"` // Optional: defaults to worker namespace if empty
+}
+
 // KubernetesConfig holds Kubernetes client configuration
 type KubernetesConfig struct {
 	KubeconfigPath string `yaml:"kubeconfigPath"`
@@ -169,6 +180,7 @@ type ControllerConfig struct {
 	Worker         WorkerPodConfig      `yaml:"worker"`
 	Reconciliation ReconciliationConfig `yaml:"reconciliation"`
 	NodeManagement NodeManagementConfig `yaml:"nodeManagement"`
+	LeaderElection LeaderElectionConfig `yaml:"leaderElection"`
 	Metrics        MetricsConfig        `yaml:"metrics"`
 	Health         HealthConfig         `yaml:"health"`
 	Logging        LoggingConfig        `yaml:"logging"`
@@ -282,4 +294,40 @@ func (c *ControllerConfig) Validate() error {
 // GetWorkerImage returns the full worker image string (repository:tag)
 func (c *ControllerConfig) GetWorkerImage() string {
 	return fmt.Sprintf("%s:%s", c.Worker.Image.Repository, c.Worker.Image.Tag)
+}
+
+func (c *ControllerConfig) GetWorkerNamespace() string {
+	if c.Worker.Namespace == "" {
+		c.Worker.Namespace = detectNamespace()
+	}
+
+	klog.V(2).InfoS("Using namespace from config", "namespace", c.Worker.Namespace)
+	return c.Worker.Namespace
+}
+
+// GetLeaderElectionNamespace returns the namespace for leader election lease
+// Defaults to worker namespace if not explicitly configured
+func (c *ControllerConfig) GetLeaderElectionNamespace() string {
+	if c.LeaderElection.Namespace != "" {
+		return c.LeaderElection.Namespace
+	}
+	return c.GetWorkerNamespace()
+}
+
+func detectNamespace() string {
+	if ns := os.Getenv("POD_NAMESPACE"); ns != "" {
+		klog.V(2).InfoS("Using namespace from POD_NAMESPACE env var", "namespace", ns)
+		return ns // Cache it in config for future use
+	}
+
+	if data, err := os.ReadFile(namespaceFile); err == nil {
+		ns := string(data)
+		if ns != "" {
+			klog.V(2).InfoS("Using namespace from service account file", "namespace", ns)
+			return ns // Cache it in config for future use
+		}
+	}
+
+	klog.V(2).InfoS("Using default namespace", "namespace", "default")
+	return "default"
 }

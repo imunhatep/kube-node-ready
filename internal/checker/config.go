@@ -1,6 +1,10 @@
 package checker
 
-import "time"
+import (
+	"time"
+
+	"github.com/imunhatep/kube-node-ready/internal/config"
+)
 
 // CheckerConfig holds configuration for the verification checker
 type CheckerConfig struct {
@@ -30,5 +34,18 @@ func NewCheckerConfig() *CheckerConfig {
 		RetryBackoff:          "exponential",
 		DNSTestDomains:        []string{"kubernetes.default.svc.cluster.local", "google.com"},
 		KubernetesServicePort: "443",
+	}
+}
+
+// NewCheckerConfigFromWorkerConfig converts WorkerConfig to checker.CheckerConfig
+func NewCheckerConfigFromWorkerConfig(c *config.WorkerConfig) *CheckerConfig {
+	return &CheckerConfig{
+		NodeName:              c.NodeName,
+		CheckTimeout:          c.GetCheckTimeout(),
+		MaxRetries:            c.MaxRetries,
+		RetryBackoff:          c.RetryBackoff,
+		DNSTestDomains:        c.DNSTestDomains,
+		KubernetesServiceHost: c.KubernetesServiceHost,
+		KubernetesServicePort: c.KubernetesServicePort,
 	}
 }

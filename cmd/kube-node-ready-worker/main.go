@@ -12,7 +12,7 @@ import (
 
 	"github.com/imunhatep/kube-node-ready/internal/checker"
 	"github.com/imunhatep/kube-node-ready/internal/config"
-	"github.com/imunhatep/kube-node-ready/internal/k8sclient"
+	"github.com/imunhatep/kube-node-ready/internal/k8s"
 )
 
 // Build-time variables
@@ -82,8 +82,8 @@ func run() int {
 	)
 
 	// Create Kubernetes client using adapter
-	clientCfg := config.NewClientConfigFromWorkerConfig(cfg)
-	clientset, err := k8sclient.CreateClient(clientCfg)
+	clientCfg := k8s.NewClientConfigFromWorkerConfig(cfg)
+	clientset, err := k8s.CreateClient(clientCfg)
 	if err != nil {
 		klog.ErrorS(err, "Failed to create Kubernetes client")
 		return ExitClientError
@@ -109,7 +109,7 @@ func run() int {
 	}()
 
 	// Create checker using adapter
-	checkerCfg := config.NewCheckerConfigFromWorkerConfig(cfg)
+	checkerCfg := checker.NewCheckerConfigFromWorkerConfig(cfg)
 	chk := checker.NewChecker(checkerCfg, clientset)
 
 	// Run verification checks (single attempt - no retries in worker mode)

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/imunhatep/kube-node-ready/internal/k8s"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -14,7 +15,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/imunhatep/kube-node-ready/internal/config"
-	"github.com/imunhatep/kube-node-ready/internal/node"
 )
 
 func setupTestNodeReconciler(t *testing.T) (*NodeReconciler, client.Client, *config.ControllerConfig) {
@@ -74,7 +74,7 @@ func setupTestNodeReconciler(t *testing.T) (*NodeReconciler, client.Client, *con
 
 	// Create a mock NodeManager - passing nil clients for testing
 	// In real tests, you might want to use mock clients, but for basic functionality testing nil is ok
-	mockNodeManager := node.NewManager(nil, nil)
+	mockNodeManager := k8s.NewNodeManager(nil, nil)
 
 	reconciler := NewNodeReconciler(fakeClient, scheme, cfg, mockNodeManager)
 
@@ -119,7 +119,7 @@ func TestNewNodeReconciler(t *testing.T) {
 	}
 
 	if reconciler.StateCache == nil {
-		t.Error("Expected StateCache to be initialized")
+		t.Error("Expected NodeStateCache to be initialized")
 	}
 
 	if reconciler.WorkerManager == nil {
@@ -132,9 +132,9 @@ func TestReconcileNodeDeleted(t *testing.T) {
 	ctx := context.Background()
 
 	// Add some state for a node
-	reconciler.StateCache.Set("deleted-node", &NodeState{
+	reconciler.StateCache.Set("deleted-node", &k8s.NodeState{
 		NodeName: "deleted-node",
-		State:    StateInProgress,
+		State:    k8s.NodeStateInProgress,
 	})
 
 	// Reconcile non-existent node

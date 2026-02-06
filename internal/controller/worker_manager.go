@@ -3,7 +3,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"os"
 	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
@@ -18,57 +17,21 @@ import (
 	"github.com/imunhatep/kube-node-ready/internal/config"
 )
 
-const (
-	// Default path to namespace file in Kubernetes service account
-	namespaceFile = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
-)
-
 // WorkerManager manages the lifecycle of worker jobs
 type WorkerManager struct {
-	client    client.Client
-	config    *config.ControllerConfig
-	namespace string
+	client client.Client
+	config *config.ControllerConfig
 }
 
 // NewWorkerManager creates a new worker manager
-// The namespace is auto-detected from the controller's environment
+// Uses namespace from config (which should already be detected/set)
 func NewWorkerManager(client client.Client, cfg *config.ControllerConfig) *WorkerManager {
-	namespace := detectNamespace(cfg)
-	klog.InfoS("Worker manager initialized", "namespace", namespace)
+	klog.InfoS("Worker manager initialized", "namespace", cfg.GetWorkerNamespace())
 
 	return &WorkerManager{
-		client:    client,
-		config:    cfg,
-		namespace: namespace,
+		client: client,
+		config: cfg,
 	}
-}
-
-// detectNamespace determines the namespace where worker jobs should be created
-func detectNamespace(cfg *config.ControllerConfig) string {
-	// 1. Try config if explicitly set (backwards compatibility)
-	if cfg.Worker.Namespace != "" {
-		klog.V(2).InfoS("Using namespace from config", "namespace", cfg.Worker.Namespace)
-		return cfg.Worker.Namespace
-	}
-
-	// 2. Try POD_NAMESPACE environment variable (injected by Kubernetes downward API)
-	if ns := os.Getenv("POD_NAMESPACE"); ns != "" {
-		klog.V(2).InfoS("Using namespace from POD_NAMESPACE env var", "namespace", ns)
-		return ns
-	}
-
-	// 3. Try reading from service account namespace file (in-cluster)
-	if data, err := os.ReadFile(namespaceFile); err == nil {
-		ns := string(data)
-		if ns != "" {
-			klog.V(2).InfoS("Using namespace from service account file", "namespace", ns)
-			return ns
-		}
-	}
-
-	// 4. Default to default namespace
-	klog.V(2).InfoS("Using default namespace", "namespace", "default")
-	return "default"
 }
 
 // buildWorkerEnvVars constructs environment variables for worker jobs
@@ -342,7 +305,7 @@ func (w *WorkerManager) CreateWorkerJob(ctx context.Context, nodeName string) (*
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      jobName,
-			Namespace: w.namespace,
+			Namespace: w.config.GetWorkerNamespace(),
 			Labels: map[string]string{
 				"app":       "kube-node-ready",
 				"component": "worker",
@@ -422,7 +385,7 @@ func (w *WorkerManager) CreateWorkerJob(ctx context.Context, nodeName string) (*
 			// Get the existing job
 			existingJob := &batchv1.Job{}
 			jobQuery := client.ObjectKey{
-				Namespace: w.namespace,
+				Namespace: w.config.GetWorkerNamespace(),
 				Name:      jobName,
 			}
 			if err := w.client.Get(ctx, jobQuery, existingJob); err != nil {
@@ -443,7 +406,7 @@ func (w *WorkerManager) GetWorkerJobStatus(ctx context.Context, jobName string) 
 	job := &batchv1.Job{}
 
 	jobQuery := client.ObjectKey{
-		Namespace: w.namespace,
+		Namespace: w.config.GetWorkerNamespace(),
 		Name:      jobName,
 	}
 
@@ -532,7 +495,7 @@ func (w *WorkerManager) DeleteWorkerJob(ctx context.Context, jobName string) err
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      jobName,
-			Namespace: w.namespace,
+			Namespace: w.config.GetWorkerNamespace(),
 		},
 	}
 
@@ -559,7 +522,7 @@ func (w *WorkerManager) DeleteWorkerJob(ctx context.Context, jobName string) err
 func (w *WorkerManager) FindWorkerJobForNode(ctx context.Context, nodeName string) (*batchv1.Job, error) {
 	jobList := &batchv1.JobList{}
 	err := w.client.List(ctx, jobList,
-		client.InNamespace(w.namespace),
+		client.InNamespace(w.config.GetWorkerNamespace()),
 		client.MatchingLabels{
 			"app":       "kube-node-ready",
 			"component": "worker",
@@ -607,7 +570,7 @@ func (w *WorkerManager) FindWorkerJobForNode(ctx context.Context, nodeName strin
 func (w *WorkerManager) GetJobUID(ctx context.Context, jobName string) (types.UID, error) {
 	job := &batchv1.Job{}
 	err := w.client.Get(ctx, client.ObjectKey{
-		Namespace: w.namespace,
+		Namespace: w.config.GetWorkerNamespace(),
 		Name:      jobName,
 	}, job)
 	if err != nil {

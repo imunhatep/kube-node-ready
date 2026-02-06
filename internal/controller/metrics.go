@@ -3,6 +3,7 @@ package controller
 import (
 	"time"
 
+	"github.com/imunhatep/kube-node-ready/internal/k8s"
 	"github.com/imunhatep/kube-node-ready/internal/metrics"
 )
 
@@ -35,13 +36,13 @@ func (r *NodeReconciler) updateAggregateMetrics() {
 
 	for _, state := range states {
 		switch state.State {
-		case StateUnverified:
+		case k8s.NodeStateUnverified:
 			unverified++
-		case StatePending, StateInProgress:
+		case k8s.NodeStatePending, k8s.NodeStateInProgress:
 			verifying++
-		case StateVerified:
+		case k8s.NodeStateVerified:
 			verified++
-		case StateFailed:
+		case k8s.NodeStateFailed:
 			failed++
 		}
 	}

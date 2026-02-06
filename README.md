@@ -22,7 +22,7 @@ When new nodes join a Kubernetes cluster, they may have networking issues such a
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ Controller Deployment (single replica)                      │
-│  • Watches node events                                      │
+│  • Watches Node & Job resources via controller-runtime      │
 │  • Creates worker pods for unverified nodes                 │
 │  • Manages reconciliation & retries                         │
 │  • Exposes centralized metrics                              │
@@ -141,7 +141,7 @@ kubectl get node <node-name> -o yaml
 ```
 
 ### 2. Controller Detects Unverified Node
-- Controller watches node events
+- Controller watches Node and Job resources using controller-runtime
 - Detects new node without `node-ready/verified` label
 - Checks if node has verification taint
 - Adds node to reconciliation queue
@@ -191,40 +191,40 @@ kubectl get node <node-name> -o yaml
 
 ```
 ┌───────────────────────────────────────────────────────────────────┐
-│                    Kubernetes API Server                           │
+│                    Kubernetes API Server                          │
 └───────────────────────────┬───────────────────────────────────────┘
                             │
                             │ Watch Nodes
                             ↓
 ┌───────────────────────────────────────────────────────────────────┐
-│                   kube-node-ready-controller                       │
-│                                                                    │
-│  ┌────────────────────────────────────────────────────────────┐  │
-│  │ Reconciliation Loop                                         │  │
-│  │  1. Detect unverified nodes                                │  │
-│  │  2. Create worker pod with nodeAffinity                    │  │
-│  │  3. Monitor worker pod status                              │  │
-│  │  4. Process results (exit code)                            │  │
-│  │  5. Update node (remove taint, add label)                  │  │
-│  │  6. Clean up worker pod                                    │  │
-│  │  7. Handle failures (retry/delete node)                    │  │
-│  └────────────────────────────────────────────────────────────┘  │
-│                                                                    │
-│  ┌────────────────────────────────────────────────────────────┐  │
-│  │ Metrics & Monitoring                                        │  │
-│  │  • Nodes verified/failed                                   │  │
-│  │  • Verification duration                                   │  │
-│  │  • Retry attempts                                          │  │
-│  │  • Worker pod status                                       │  │
-│  └────────────────────────────────────────────────────────────┘  │
-└────────────┬───────────────────────────────────────────────────────┘
+│                   kube-node-ready-controller                      │
+│                                                                   │
+│  ┌────────────────────────────────────────────────────────────┐   │
+│  │ Reconciliation Loop                                        │   │
+│  │  1. Detect unverified nodes                                │   │
+│  │  2. Create worker pod with nodeAffinity                    │   │
+│  │  3. Monitor worker pod status                              │   │
+│  │  4. Process results (exit code)                            │   │
+│  │  5. Update node (remove taint, add label)                  │   │
+│  │  6. Clean up worker pod                                    │   │
+│  │  7. Handle failures (retry/delete node)                    │   │
+│  └────────────────────────────────────────────────────────────┘   │
+│                                                                   │
+│  ┌────────────────────────────────────────────────────────────┐   │
+│  │ Metrics & Monitoring                                       │   │
+│  │  • Nodes verified/failed                                   │   │
+│  │  • Verification duration                                   │   │
+│  │  • Retry attempts                                          │   │
+│  │  • Worker pod status                                       │   │
+│  └────────────────────────────────────────────────────────────┘   │
+└────────────┬──────────────────────────────────────────────────────┘
              │
              │ Creates Worker Pods
              ↓
-┌───────────────────────────────────────────────────────────────────┐
-│              Worker Pods (short-lived, per node)                  │
-│                                                                    │
-│  Node: node-1           Node: node-2           Node: node-3       │
+┌──────────────────────────────────────────────────────────────────┐
+│              Worker Pods (short-lived, per node)                 │
+│                                                                  │
+│  Node: node-1           Node: node-2           Node: node-3      │
 │  ┌─────────────────┐    ┌─────────────────┐    ┌──────────────┐  │
 │  │ Worker Pod      │    │ Worker Pod      │    │ Worker Pod   │  │
 │  │                 │    │                 │    │              │  │
@@ -236,7 +236,7 @@ kubectl get node <node-name> -o yaml
 │  │ Exit: 0 ✅      │    │ Exit: 0 ✅      │    │ Exit: 1 ❌   │  │
 │  └─────────────────┘    └─────────────────┘    └──────────────┘  │
 │  Terminated            Terminated             Retry/Delete       │
-└───────────────────────────────────────────────────────────────────┘
+└──────────────────────────────────────────────────────────────────┘
 ```
 
 See [Controller Architecture](docs/ARCHITECTURE_CONTROLLER.md) for detailed design.

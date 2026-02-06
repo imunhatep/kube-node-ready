@@ -1,15 +1,49 @@
-package k8sclient
+package k8s
 
 import (
 	"fmt"
 	"os"
 
+	"github.com/imunhatep/kube-node-ready/internal/config"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
 )
+
+// ClientConfig holds configuration for creating Kubernetes clients
+type ClientConfig struct {
+	// Mode configuration
+	DryRun bool
+
+	// Kubeconfig path for out-of-cluster usage
+	KubeconfigPath string
+
+	// In-cluster configuration (optional, auto-detected if empty)
+	KubernetesServiceHost string
+	KubernetesServicePort string
+}
+
+// NewClientConfig creates a ClientConfig with sensible defaults
+func NewClientConfig() *ClientConfig {
+	return &ClientConfig{
+		DryRun:                false,
+		KubeconfigPath:        "",
+		KubernetesServiceHost: "",
+		KubernetesServicePort: "443",
+	}
+}
+
+// NewClientConfigFromWorkerConfig converts WorkerConfig to k8s.ClientConfig
+func NewClientConfigFromWorkerConfig(c *config.WorkerConfig) *ClientConfig {
+	return &ClientConfig{
+		DryRun:                c.DryRun,
+		KubeconfigPath:        c.KubeconfigPath,
+		KubernetesServiceHost: c.KubernetesServiceHost,
+		KubernetesServicePort: c.KubernetesServicePort,
+	}
+}
 
 // CreateClient creates a Kubernetes client based on the configuration mode
 func CreateClient(cfg *ClientConfig) (*kubernetes.Clientset, error) {
