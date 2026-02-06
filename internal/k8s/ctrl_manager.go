@@ -23,7 +23,7 @@ func NewCtrlManager(scheme *runtime.Scheme, cfg *config.ControllerConfig) (ctrl.
 	klog.InfoS("Creating controller-runtime manager",
 		"leaderElection", cfg.LeaderElection.Enabled,
 		"leaderElectionID", cfg.LeaderElection.ID,
-		"workerNamespace", cfg.GetNamespace(),
+		"workerNamespace", cfg.GetWorkerNamespace(),
 	)
 
 	// Configure metrics address
@@ -36,7 +36,7 @@ func NewCtrlManager(scheme *runtime.Scheme, cfg *config.ControllerConfig) (ctrl.
 	probeAddr := fmt.Sprintf(":%d", cfg.Health.Port)
 
 	// Create manager with namespace-scoped Job watching
-	klog.InfoS("Configuring namespace-scoped Job cache", "namespace", cfg.GetNamespace())
+	klog.InfoS("Configuring namespace-scoped Job cache", "namespace", cfg.GetWorkerNamespace())
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme: scheme,
@@ -56,7 +56,7 @@ func NewCtrlManager(scheme *runtime.Scheme, cfg *config.ControllerConfig) (ctrl.
 			ByObject: map[client.Object]cache.ByObject{
 				&batchv1.Job{}: {
 					Namespaces: map[string]cache.Config{
-						cfg.GetNamespace(): {},
+						cfg.GetWorkerNamespace(): {},
 					},
 				},
 			},

@@ -26,7 +26,7 @@ type WorkerManager struct {
 // NewWorkerManager creates a new worker manager
 // Uses namespace from config (which should already be detected/set)
 func NewWorkerManager(client client.Client, cfg *config.ControllerConfig) *WorkerManager {
-	klog.InfoS("Worker manager initialized", "namespace", cfg.GetNamespace())
+	klog.InfoS("Worker manager initialized", "namespace", cfg.GetWorkerNamespace())
 
 	return &WorkerManager{
 		client: client,
@@ -305,7 +305,7 @@ func (w *WorkerManager) CreateWorkerJob(ctx context.Context, nodeName string) (*
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      jobName,
-			Namespace: w.config.GetNamespace(),
+			Namespace: w.config.GetWorkerNamespace(),
 			Labels: map[string]string{
 				"app":       "kube-node-ready",
 				"component": "worker",
@@ -385,7 +385,7 @@ func (w *WorkerManager) CreateWorkerJob(ctx context.Context, nodeName string) (*
 			// Get the existing job
 			existingJob := &batchv1.Job{}
 			jobQuery := client.ObjectKey{
-				Namespace: w.config.GetNamespace(),
+				Namespace: w.config.GetWorkerNamespace(),
 				Name:      jobName,
 			}
 			if err := w.client.Get(ctx, jobQuery, existingJob); err != nil {
@@ -406,7 +406,7 @@ func (w *WorkerManager) GetWorkerJobStatus(ctx context.Context, jobName string) 
 	job := &batchv1.Job{}
 
 	jobQuery := client.ObjectKey{
-		Namespace: w.config.GetNamespace(),
+		Namespace: w.config.GetWorkerNamespace(),
 		Name:      jobName,
 	}
 
@@ -495,7 +495,7 @@ func (w *WorkerManager) DeleteWorkerJob(ctx context.Context, jobName string) err
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      jobName,
-			Namespace: w.config.GetNamespace(),
+			Namespace: w.config.GetWorkerNamespace(),
 		},
 	}
 
@@ -522,7 +522,7 @@ func (w *WorkerManager) DeleteWorkerJob(ctx context.Context, jobName string) err
 func (w *WorkerManager) FindWorkerJobForNode(ctx context.Context, nodeName string) (*batchv1.Job, error) {
 	jobList := &batchv1.JobList{}
 	err := w.client.List(ctx, jobList,
-		client.InNamespace(w.config.GetNamespace()),
+		client.InNamespace(w.config.GetWorkerNamespace()),
 		client.MatchingLabels{
 			"app":       "kube-node-ready",
 			"component": "worker",
@@ -570,7 +570,7 @@ func (w *WorkerManager) FindWorkerJobForNode(ctx context.Context, nodeName strin
 func (w *WorkerManager) GetJobUID(ctx context.Context, jobName string) (types.UID, error) {
 	job := &batchv1.Job{}
 	err := w.client.Get(ctx, client.ObjectKey{
-		Namespace: w.config.GetNamespace(),
+		Namespace: w.config.GetWorkerNamespace(),
 		Name:      jobName,
 	}, job)
 	if err != nil {

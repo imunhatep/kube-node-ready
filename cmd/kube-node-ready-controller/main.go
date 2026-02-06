@@ -75,7 +75,7 @@ func main() {
 
 	setupLog.Info("Configuration loaded",
 		"workerImage", cfg.GetWorkerImage(),
-		"workerNamespace", cfg.GetNamespace(),
+		"workerNamespace", cfg.GetWorkerNamespace(),
 		"maxRetries", cfg.Reconciliation.MaxRetries,
 		"taintCount", len(cfg.NodeManagement.Taints),
 		"verifiedLabel", cfg.NodeManagement.VerifiedLabel.Key,

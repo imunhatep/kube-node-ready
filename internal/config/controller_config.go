@@ -296,7 +296,7 @@ func (c *ControllerConfig) GetWorkerImage() string {
 	return fmt.Sprintf("%s:%s", c.Worker.Image.Repository, c.Worker.Image.Tag)
 }
 
-func (c *ControllerConfig) GetNamespace() string {
+func (c *ControllerConfig) GetWorkerNamespace() string {
 	if c.Worker.Namespace == "" {
 		c.Worker.Namespace = detectNamespace()
 	}
@@ -311,7 +311,7 @@ func (c *ControllerConfig) GetLeaderElectionNamespace() string {
 	if c.LeaderElection.Namespace != "" {
 		return c.LeaderElection.Namespace
 	}
-	return c.GetNamespace()
+	return c.GetWorkerNamespace()
 }
 
 func detectNamespace() string {
