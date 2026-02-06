@@ -8,8 +8,7 @@ type CheckerConfig struct {
 	NodeName string
 
 	// Check timeouts
-	CheckTimeout        time.Duration
-	InitialCheckTimeout time.Duration
+	CheckTimeout time.Duration
 
 	// Retry configuration
 	MaxRetries   int
@@ -17,7 +16,6 @@ type CheckerConfig struct {
 
 	// DNS check configuration
 	DNSTestDomains []string
-	ClusterDNSIP   string
 
 	// Kubernetes service configuration
 	KubernetesServiceHost string
@@ -28,7 +26,6 @@ type CheckerConfig struct {
 func NewCheckerConfig() *CheckerConfig {
 	return &CheckerConfig{
 		CheckTimeout:          10 * time.Second,
-		InitialCheckTimeout:   300 * time.Second,
 		MaxRetries:            5,
 		RetryBackoff:          "exponential",
 		DNSTestDomains:        []string{"kubernetes.default.svc.cluster.local", "google.com"},

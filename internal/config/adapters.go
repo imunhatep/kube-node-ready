@@ -20,11 +20,9 @@ func NewCheckerConfigFromWorkerConfig(c *WorkerConfig) *checker.CheckerConfig {
 	return &checker.CheckerConfig{
 		NodeName:              c.NodeName,
 		CheckTimeout:          c.GetCheckTimeout(),
-		InitialCheckTimeout:   c.GetInitialCheckTimeout(),
 		MaxRetries:            c.MaxRetries,
 		RetryBackoff:          c.RetryBackoff,
 		DNSTestDomains:        c.DNSTestDomains,
-		ClusterDNSIP:          c.ClusterDNSIP,
 		KubernetesServiceHost: c.KubernetesServiceHost,
 		KubernetesServicePort: c.KubernetesServicePort,
 	}

@@ -177,7 +177,7 @@ func (c *Checker) calculateBackoff(attempt int) time.Duration {
 	if c.config.RetryBackoff == "exponential" {
 		// Exponential backoff: 1s, 2s, 4s, 8s, 16s
 		backoff := time.Duration(1<<uint(attempt-1)) * time.Second
-		// Cap at 300 seconds
+		// Cap at 30 seconds
 		if backoff > 30*time.Second {
 			backoff = 30 * time.Second
 		}

@@ -3,7 +3,6 @@ package config
 import (
 	"fmt"
 	"os"
-	"strconv"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -36,7 +35,11 @@ type WorkerPodConfig struct {
 }
 
 // GetTimeout returns timeout as time.Duration
+// Returns 0 if ActiveDeadlineSeconds is nil (no timeout)
 func (w *WorkerPodConfig) GetTimeout() time.Duration {
+	if w.Job.ActiveDeadlineSeconds == nil {
+		return 0
+	}
 	return time.Duration(*w.Job.ActiveDeadlineSeconds) * time.Second
 }
 
@@ -143,8 +146,8 @@ type HealthConfig struct {
 
 // LoggingConfig holds logging configuration
 type LoggingConfig struct {
-	Level  string `default:"info" yaml:"level"`
-	Format string `default:"json" yaml:"format"`
+	Level  string `yaml:"level"`
+	Format string `yaml:"format"`
 }
 
 // KubernetesConfig holds Kubernetes client configuration
@@ -184,6 +187,14 @@ func LoadControllerConfigFromFile(configPath string) (*ControllerConfig, error) 
 	cfg := &ControllerConfig{}
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
+	}
+
+	// Apply defaults for fields not specified in YAML
+	if cfg.Logging.Level == "" {
+		cfg.Logging.Level = "info"
+	}
+	if cfg.Logging.Format == "" {
+		cfg.Logging.Format = "json"
 	}
 
 	// Validate required fields
@@ -271,16 +282,4 @@ func (c *ControllerConfig) Validate() error {
 // GetWorkerImage returns the full worker image string (repository:tag)
 func (c *ControllerConfig) GetWorkerImage() string {
 	return fmt.Sprintf("%s:%s", c.Worker.Image.Repository, c.Worker.Image.Tag)
-}
-
-// Helper function to safely get environment variable with type conversion
-func getEnvInt(key string, defaultValue int) (int, error) {
-	if value := os.Getenv(key); value != "" {
-		intVal, err := strconv.Atoi(value)
-		if err != nil {
-			return defaultValue, fmt.Errorf("invalid value for %s: %w", key, err)
-		}
-		return intVal, nil
-	}
-	return defaultValue, nil
 }

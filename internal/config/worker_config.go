@@ -15,13 +15,11 @@ type WorkerConfig struct {
 
 	// Check configuration (from YAML)
 	DNSTestDomains []string `yaml:"dnsTestDomains"`
-	ClusterDNSIP   string   `yaml:"clusterDnsIp"`
 
-	// Internal field for YAML parsing
-	CheckTimeoutSeconds        int    `yaml:"checkTimeoutSeconds"`
-	InitialCheckTimeoutSeconds int    `yaml:"initialCheckTimeoutSeconds"`
-	MaxRetries                 int    `default:"1" yaml:"maxRetries"`
-	RetryBackoff               string `default:"linear" yaml:"retryBackoff"`
+	// Check timeout configuration (from YAML)
+	CheckTimeoutSeconds int    `yaml:"checkTimeoutSeconds"`
+	MaxRetries          int    `yaml:"maxRetries"`
+	RetryBackoff        string `yaml:"retryBackoff"`
 
 	// Kubernetes service (from environment, not YAML)
 	KubernetesServiceHost string
@@ -61,9 +59,18 @@ func LoadWorkerConfigFromFile(configPath string) (*WorkerConfig, error) {
 	cfg.KubeconfigPath = getEnv("KUBECONFIG", "")
 	cfg.WorkerMode = true
 
-	// Apply defaults if not specified in file
+	// Apply defaults if not specified in YAML file
 	if len(cfg.DNSTestDomains) == 0 {
 		cfg.DNSTestDomains = []string{"kubernetes.default.svc.cluster.local", "google.com"}
+	}
+	if cfg.MaxRetries == 0 {
+		cfg.MaxRetries = 1
+	}
+	if cfg.RetryBackoff == "" {
+		cfg.RetryBackoff = "linear"
+	}
+	if cfg.CheckTimeoutSeconds == 0 {
+		cfg.CheckTimeoutSeconds = 5
 	}
 
 	return cfg, nil
@@ -72,15 +79,15 @@ func LoadWorkerConfigFromFile(configPath string) (*WorkerConfig, error) {
 // Validate checks if the worker configuration is valid
 func (c *WorkerConfig) Validate() error {
 	if c.NodeName == "" {
-		return fmt.Errorf("NODE_NAME is required")
+		return fmt.Errorf("NODE_NAME environment variable is required")
 	}
 
 	if c.KubernetesServiceHost == "" {
-		return fmt.Errorf("KUBERNETES_SERVICE_HOST is required")
+		return fmt.Errorf("KUBERNETES_SERVICE_HOST environment variable is required")
 	}
 
 	if len(c.DNSTestDomains) == 0 {
-		return fmt.Errorf("DNS_TEST_DOMAINS must have at least one domain")
+		return fmt.Errorf("dnsTestDomains must have at least one domain")
 	}
 
 	if c.CheckTimeoutSeconds < 1 {
@@ -89,10 +96,6 @@ func (c *WorkerConfig) Validate() error {
 
 	if c.MaxRetries < 1 {
 		return fmt.Errorf("maxRetries must be at least 1")
-	}
-
-	if c.InitialCheckTimeoutSeconds < 1 {
-		return fmt.Errorf("initialCheckTimeoutSeconds must be at least 1 second")
 	}
 
 	if c.RetryBackoff != "exponential" && c.RetryBackoff != "linear" {
@@ -105,11 +108,6 @@ func (c *WorkerConfig) Validate() error {
 // GetCheckTimeout returns CheckTimeoutSeconds as a time.Duration
 func (c *WorkerConfig) GetCheckTimeout() time.Duration {
 	return time.Duration(c.CheckTimeoutSeconds) * time.Second
-}
-
-// GetInitialCheckTimeout returns InitialCheckTimeoutSeconds as a time.Duration
-func (c *WorkerConfig) GetInitialCheckTimeout() time.Duration {
-	return time.Duration(c.InitialCheckTimeoutSeconds) * time.Second
 }
 
 func getEnv(key, defaultValue string) string {

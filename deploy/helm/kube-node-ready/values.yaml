@@ -222,8 +222,6 @@ worker:
       - kubernetes.default.svc.cluster.local
       - google.com
 
-    # Optional: cluster DNS IP address
-    clusterDnsIp: ""
 
     # Logging configuration for worker pods
     logging:

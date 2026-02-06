@@ -15,20 +15,12 @@ data:
     retryBackoff: {{ .Values.worker.config.retryBackoff | quote }}
 
     # Check Configuration
-    initialCheckTimeoutSeconds: {{ .Values.worker.config.initialCheckTimeoutSeconds }}
     checkTimeoutSeconds: {{ .Values.worker.config.checkTimeoutSeconds }}
 
     # DNS Check Configuration
     dnsTestDomains:
     {{- range .Values.worker.config.dnsTestDomains }}
       - {{ . | quote }}
-    {{- end }}
-
-    # Optional: Cluster DNS IP address
-    {{- if .Values.worker.config.clusterDnsIp }}
-    clusterDnsIp: {{ .Values.worker.config.clusterDnsIp | quote }}
-    {{- else }}
-    clusterDnsIp: ""
     {{- end }}
 
     # Logging Configuration
